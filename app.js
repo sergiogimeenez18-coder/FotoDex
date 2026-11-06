@@ -619,7 +619,7 @@ async function saveCapture(event) {
     photo:activePhoto.blob, photoWidth:activePhoto.width, photoHeight:activePhoto.height,
     coordinates, visibility:String(data.get('visibility')||'private'),
     identificationSource,identificationConfidence,
-    cloudSynced:Boolean(previous?.cloudSynced),cloudUserId:previous?.cloudUserId||null,createdAt:previous?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString()
+    cloudSynced:Boolean(previous?.cloudSynced),cloudSyncPending:Boolean(previous?.cloudSyncPending),cloudUserId:previous?.cloudUserId||null,createdAt:previous?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString()
   };
   const locationRemovalPending=Boolean(previous?.cloudSynced&&previous.cloudUserId===authUser?.id&&previous.coordinates&&!coordinates);
   const button=document.querySelector('.save-capture'); button.disabled=true; button.textContent='Guardando…';
@@ -627,11 +627,12 @@ async function saveCapture(event) {
     let cloudSaved=false;
     if(authUser&&supabaseClient&&(!previous?.cloudSynced||previous.cloudUserId===authUser.id)){
       try{await uploadCaptureToCloud(item,previous);item.cloudSynced=true;item.cloudUserId=authUser.id;cloudSaved=true}
-      catch(error){console.warn('FotoDex capture upload:',error);item.cloudSynced=Boolean(previous?.cloudSynced)}
+      catch(error){console.warn('FotoDex capture upload:',error);item.cloudSynced=Boolean(previous?.cloudSynced);item.cloudSyncPending=true}
     }
     await writeCapture(item); modal(captureModal,false); resetEditor(); await refresh();
     if(cloudSaved){await loadCloudCaptures();renderAll();notify('Captura guardada en tu cuenta.');}
     else if(authUser&&locationRemovalPending)notify('Se guardó aquí, pero no se pudo quitar la ubicación de la nube. Vuelve a guardar con conexión para completar el borrado.');
+    else if(authUser&&item.cloudSyncPending)notify('Guardada aquí; falta sincronizar. Abre la ficha y pulsa «Reintentar sincronización».');
     else if(authUser)notify('Guardada en este dispositivo; no se pudo sincronizar.');
     else notify('Captura guardada en este dispositivo.');
   }
@@ -640,24 +641,26 @@ async function saveCapture(event) {
 }
 async function uploadCaptureToCloud(item,previous=null){
   await ensureProfile(authUser);
-  const updateExisting=Boolean(previous?.cloudSynced&&previous.cloudUserId===authUser.id);
-  if(!item.coordinates&&updateExisting){
-    const removed=await supabaseClient.from('capture_private_locations').delete().eq('capture_id',item.id).eq('user_id',authUser.id);
-    if(removed.error)throw removed.error;
-  }
   const path=`${authUser.id}/${item.id}.jpg`;
-  const uploaded=await supabaseClient.storage.from('captures').upload(path,item.photo,{contentType:'image/jpeg',cacheControl:'31536000',upsert:updateExisting});
+  const uploaded=await supabaseClient.storage.from('captures').upload(path,item.photo,{contentType:'image/jpeg',cacheControl:'31536000',upsert:true});
   if(uploaded.error)throw uploaded.error;
   const row={id:item.id,user_id:authUser.id,common_name:item.name,scientific_name:item.scientific,animal_group:item.kind,habitat:item.habitat,country:item.country,place:item.place,captured_on:item.capturedOn,notes:item.notes,image_path:path,image_width:item.photoWidth,image_height:item.photoHeight,identification_source:item.identificationSource||'manual',identification_confidence:item.identificationConfidence??null,visibility:item.visibility||'private'};
-  const result=updateExisting
-    ? await supabaseClient.from('captures').update(row).eq('id',item.id).select('id').single()
-    : await supabaseClient.from('captures').insert(row).select('id').single();
-  if(result.error){if(!updateExisting)await supabaseClient.storage.from('captures').remove([path]);throw result.error;}
+  const result=await supabaseClient.from('captures').upsert(row,{onConflict:'id'}).select('id').single();
+  if(result.error)throw result.error;
   if(item.coordinates){
     const location={capture_id:item.id,user_id:authUser.id,latitude:item.coordinates.latitude,longitude:item.coordinates.longitude};
     const saved=await supabaseClient.from('capture_private_locations').upsert(location,{onConflict:'capture_id'});
     if(saved.error)throw saved.error;
+  }else{
+    const removed=await supabaseClient.from('capture_private_locations').delete().eq('capture_id',item.id).eq('user_id',authUser.id);
+    if(removed.error)throw removed.error;
   }
+}
+async function retryCaptureSync(id){
+  const item=captures.find(capture=>capture.id===id);if(!item||!authUser||!supabaseClient)return;
+  const button=document.querySelector('[data-retry-sync]');if(button){button.disabled=true;button.textContent='Sincronizando…'}
+  try{await uploadCaptureToCloud(item,item);item.cloudSynced=true;item.cloudSyncPending=false;item.cloudUserId=authUser.id;await writeCapture(item);await loadCloudCaptures();renderAll();showCaptureDetails(id);notify('Captura sincronizada con tu cuenta.')}
+  catch(error){console.warn('FotoDex capture retry:',error);notify('Sigue sin poder sincronizarse. Revisa la conexión e inténtalo de nuevo.')}
 }
 function showCaptureDetails(id) {
   const item=captures.find(x=>x.id===id); if(!item)return;
@@ -666,8 +669,8 @@ function showCaptureDetails(id) {
     <div class="detail-photo">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:'🐾'}</div>
     <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth} × ${item.photoHeight} px</strong></div></div>
-    ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
-    <div class="detail-actions"><button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
+    ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSyncPending?'Hay cambios pendientes de sincronizar; la copia de tu cuenta podría estar desactualizada.':item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
+    <div class="detail-actions">${item.cloudSyncPending&&authUser?`<button class="edit-button" data-retry-sync="${esc(item.id)}">Reintentar sincronización</button>`:''}<button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
   modal(detailModal,true);
 }
 function showCloudCaptureDetails(id,profileCapture=null) {
@@ -798,6 +801,8 @@ photoInput.addEventListener('change',async event=>{
   finally{event.target.value=''}
 });
 document.addEventListener('click',async event=>{
+  const retrySync=event.target.closest('[data-retry-sync]');
+  if(retrySync){await retryCaptureSync(retrySync.dataset.retrySync);return}
   const aiCandidate=event.target.closest('[data-ai-candidate]');if(aiCandidate){applyAiCandidate(Number(aiCandidate.dataset.aiCandidate));return}
   const view=event.target.closest('[data-view]'); if(view){goToView(view.dataset.view);return}
   if(event.target.closest('[data-action="camera"]')){showChoice();return}
