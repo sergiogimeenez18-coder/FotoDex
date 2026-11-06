@@ -37,6 +37,30 @@ Deno.serve(async (request: Request) => {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return json({ error: "La foto no tiene un formato válido." }, 400, origin);
   if (atob(encoded).length > 1_400_000) return json({ error: "La foto supera el tamaño permitido." }, 413, origin);
 
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const authorization = request.headers.get("authorization");
+  const publishableKey = request.headers.get("apikey");
+  if (!supabaseUrl || !authorization || !publishableKey) {
+    return json({ error: "No se pudo comprobar el límite de identificación." }, 503, origin);
+  }
+  let quotaResponse: Response;
+  try {
+    quotaResponse = await fetch(`${supabaseUrl}/rest/v1/rpc/consume_animal_identification`, {
+      method: "POST",
+      headers: { "Authorization": authorization, "apikey": publishableKey, "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    return json({ error: "No se pudo comprobar el límite de identificación." }, 503, origin);
+  }
+  if (!quotaResponse.ok) return json({ error: "No se pudo comprobar el límite de identificación." }, 503, origin);
+  let dailyUsage: number;
+  try { dailyUsage = Number(await quotaResponse.json()); } catch { return json({ error: "No se pudo comprobar el límite de identificación." }, 503, origin); }
+  if (!Number.isFinite(dailyUsage) || dailyUsage === 0) {
+    return json({ error: "Has alcanzado el máximo de 25 identificaciones de hoy. Vuelve a intentarlo mañana." }, 429, origin);
+  }
+
   const schema = {
     type: "object",
     properties: {

@@ -579,7 +579,7 @@ async function identifyAnimal(){
   try{
     const smallImage=await resizedIdentificationImage(activePhoto.blob),image_data_url=await blobDataURL(smallImage);
     const {data,error}=await supabaseClient.functions.invoke('identify-animal',{body:{image_data_url,language:'es'}});
-    if(error){if(error.context?.status===503){results.innerHTML='<span class="ai-status">Falta configurar OPENAI_API_KEY en los secretos de Supabase. No se envió la foto al modelo.</span>';return}throw error}
+    if(error){if(error.context?.status===503){results.innerHTML='<span class="ai-status">No se pudo verificar el servicio o su límite diario. No se envió la foto al modelo.</span>';return}if(error.context?.status===429){results.innerHTML='<span class="ai-status">Has alcanzado el máximo de 25 identificaciones de hoy. Vuelve a intentarlo mañana.</span>';return}throw error}
     aiCandidates=Array.isArray(data?.observations)?data.observations:[];
     if(!data?.is_animal||!aiCandidates.length){results.innerHTML='<span class="ai-status">No pude reconocer un animal con suficiente seguridad. Prueba otra foto o completa la ficha manualmente.</span>';return}
     results.innerHTML='<span class="ai-status">Elige la sugerencia que mejor encaja. La IA puede equivocarse.</span>'+aiCandidates.map((candidate,index)=>`<button type="button" class="ai-candidate" data-ai-candidate="${index}"><strong>${esc(candidate.common_name)}</strong><em>${esc(candidate.scientific_name)}</em><small>${esc(kindLabel(candidate.animal_group))} · Coincidencia orientativa: ${Math.round(candidate.confidence*100)}%${candidate.rationale?' · '+esc(candidate.rationale):''}</small></button>`).join('');
