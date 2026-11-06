@@ -1,7 +1,7 @@
 {
   "name": "FotoDex — Tu naturaleza, en colección",
   "short_name": "FotoDex",
-  "description": "Fotografía, identifica y colecciona animales.",
+  "description": "Fotografía y registra observaciones de animales.",
   "lang": "es-ES",
   "start_url": "./",
   "scope": "./",
