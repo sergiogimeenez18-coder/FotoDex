@@ -46,6 +46,7 @@ let followedIds = new Set();
 let exploreMode = 'captures';
 let peopleSearchRun = 0;
 let peopleSearchTimer = null;
+let deferredInstallPrompt = null;
 let aiCandidates = [];
 let identificationSource = 'manual';
 let identificationConfidence = null;
@@ -110,6 +111,18 @@ function notify(message) {
   clearTimeout(notify.timer); notify.timer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 function modal(el, open) { el.classList.toggle('open', open); el.setAttribute('aria-hidden', String(!open)); }
+function setupAppInstall(){
+  const button=document.querySelector('#install-app'),standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+  if(standalone)return;
+  const userAgent=navigator.userAgent||'',isIOS=/iPhone|iPad|iPod/i.test(userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  button.classList.remove('hidden');
+  window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;button.classList.remove('hidden')});
+  button.addEventListener('click',async()=>{
+    if(deferredInstallPrompt){const promptEvent=deferredInstallPrompt;deferredInstallPrompt=null;try{await promptEvent.prompt();const choice=await promptEvent.userChoice;if(choice?.outcome==='accepted')button.classList.add('hidden')}catch{notify('No se pudo abrir la instalación. Usa el menú del navegador.')}return}
+    notify(isIOS?'En Safari: Compartir → Añadir a pantalla de inicio.':'Abre el menú del navegador y elige «Instalar» o «Añadir a pantalla de inicio».');
+  });
+  window.addEventListener('appinstalled',()=>button.classList.add('hidden'));
+}
 function isoToday() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,10); }
 function niceDate(date) { return date ? new Intl.DateTimeFormat('es-ES',{day:'numeric',month:'short',year:'numeric'}).format(new Date(date+'T12:00:00')) : 'Fecha sin indicar'; }
 
@@ -775,5 +788,5 @@ document.addEventListener('click',async event=>{
 });
 
 refresh().catch(()=>{renderAll();notify('Abre FotoDex desde su dirección web segura para guardar capturas.')});
-setAuthMode('signin');initCloud();
+setAuthMode('signin');initCloud();setupAppInstall();
 if('serviceWorker' in navigator && location.protocol.startsWith('http')) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
