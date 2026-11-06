@@ -809,6 +809,15 @@ document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.addEventListe
 }));
 document.querySelectorAll('[data-explore-mode]').forEach(button=>button.addEventListener('click',()=>{exploreMode=button.dataset.exploreMode;renderExplore()}));
 document.querySelector('#filter-button').addEventListener('click',()=>document.querySelector('#advanced-filters').classList.toggle('filters-open'));
+document.querySelector('#reset-filters').addEventListener('click',()=>{
+  document.querySelector('#search-input').value='';
+  document.querySelector('#status-filter').value='todas';
+  document.querySelector('#habitat-filter').value='todos';
+  document.querySelector('#country-filter').value='';
+  document.querySelector('#species-sort').value='recent';
+  document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.classList.toggle('selected',chip.dataset.filter==='todas'));
+  renderSpecies();
+});
 document.querySelector('#take-photo').addEventListener('click',()=>pickPhoto(true));
 document.querySelector('#choose-photo').addEventListener('click',()=>pickPhoto(false));
 document.querySelector('#back-to-choice').addEventListener('click',()=>{choicePanel.classList.remove('hidden');editorPanel.classList.add('hidden');resetEditor()});
