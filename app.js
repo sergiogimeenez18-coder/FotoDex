@@ -344,6 +344,7 @@ function updateAccountUI(profile=null) {
   document.querySelector('#account-signout').classList.toggle('hidden',!signedIn);
   if(profile){document.querySelector('#profile-form').elements.display_name.value=profile.display_name||'';document.querySelector('#profile-form').elements.bio.value=profile.bio||'';updateBioCounter()}
   if(!signedIn){document.querySelector('#profile-follower-count').textContent='—';document.querySelector('#profile-following-count').textContent='—';}
+  updateLocationUI();
 }
 async function handleAuthSession(session) {
   const nextUser=session?.user||null;
@@ -431,7 +432,7 @@ function resetEditor() {
   document.querySelector('#ai-results').replaceChildren();document.querySelector('#identify-photo').disabled=false;
   if (previewURL) URL.revokeObjectURL(previewURL);
   previewURL = null; document.querySelector('#photo-size').textContent = '';
-  document.querySelector('#use-location').textContent = 'Añadir ubicación';
+  updateLocationUI();
 }
 function showChoice() {
   resetEditor(); choicePanel.classList.remove('hidden'); editorPanel.classList.add('hidden'); modal(captureModal,true);
@@ -448,7 +449,7 @@ function showEditor(photo, existing=null) {
   form.elements.country.value=existing?.country||''; form.elements.place.value=existing?.place||'';
   form.elements.notes.value=existing?.notes||''; form.elements.date.value=existing?.capturedOn||isoToday();
   form.elements.visibility.value=existing?.visibility||'private';
-  document.querySelector('#use-location').textContent=coordinates?'Ubicación añadida ✓':'Añadir ubicación';
+  updateLocationUI();
   modal(captureModal,true);
 }
 function resizedIdentificationImage(blob) {
@@ -509,6 +510,7 @@ async function saveCapture(event) {
     identificationSource,identificationConfidence,
     cloudSynced:Boolean(previous?.cloudSynced),cloudUserId:previous?.cloudUserId||null,createdAt:previous?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString()
   };
+  const locationRemovalPending=Boolean(previous?.cloudSynced&&previous.cloudUserId===authUser?.id&&previous.coordinates&&!coordinates);
   const button=document.querySelector('.save-capture'); button.disabled=true; button.textContent='Guardando…';
   try {
     let cloudSaved=false;
@@ -518,6 +520,7 @@ async function saveCapture(event) {
     }
     await writeCapture(item); modal(captureModal,false); resetEditor(); await refresh();
     if(cloudSaved){await loadCloudCaptures();renderAll();notify('Captura guardada en tu cuenta.');}
+    else if(authUser&&locationRemovalPending)notify('Se guardó aquí, pero no se pudo quitar la ubicación de la nube. Vuelve a guardar con conexión para completar el borrado.');
     else if(authUser)notify('Guardada en este dispositivo; no se pudo sincronizar.');
     else notify('Captura guardada en este dispositivo.');
   }
@@ -527,6 +530,10 @@ async function saveCapture(event) {
 async function uploadCaptureToCloud(item,previous=null){
   await ensureProfile(authUser);
   const updateExisting=Boolean(previous?.cloudSynced&&previous.cloudUserId===authUser.id);
+  if(!item.coordinates&&updateExisting){
+    const removed=await supabaseClient.from('capture_private_locations').delete().eq('capture_id',item.id).eq('user_id',authUser.id);
+    if(removed.error)throw removed.error;
+  }
   const path=`${authUser.id}/${item.id}.jpg`;
   const uploaded=await supabaseClient.storage.from('captures').upload(path,item.photo,{contentType:'image/jpeg',cacheControl:'31536000',upsert:updateExisting});
   if(uploaded.error)throw uploaded.error;
@@ -575,14 +582,22 @@ function showSpeciesDetails(name) {
   modal(detailModal,true);
 }
 function useLocation() {
+  if(coordinates){coordinates=null;updateLocationUI();notify('Ubicación precisa quitada de esta ficha.');return}
   if(!navigator.geolocation){notify('Este navegador no ofrece ubicación.');return}
   const button=document.querySelector('#use-location'); button.disabled=true; button.textContent='Buscando…';
   navigator.geolocation.getCurrentPosition(position=>{
     coordinates={latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:Math.round(position.coords.accuracy)};
-    button.disabled=false; button.textContent='Ubicación añadida ✓'; notify('Ubicación guardada localmente en la ficha.');
+    updateLocationUI(); notify('Ubicación precisa añadida a la ficha. Se guardará de forma privada al sincronizar.');
   },()=>{
-    button.disabled=false; button.textContent='Añadir ubicación'; notify('No se concedió acceso. Puedes escribir el lugar manualmente.');
+    updateLocationUI(); notify('No se concedió acceso. Puedes escribir el lugar manualmente.');
   },{enableHighAccuracy:false,timeout:10000,maximumAge:60000});
+}
+function updateLocationUI(){
+  const button=document.querySelector('#use-location');if(!button)return;
+  button.disabled=false;button.textContent=coordinates?'Quitar ubicación':'Añadir ubicación';
+  document.querySelector('#location-help').textContent=authUser
+    ?'Si añades una ubicación precisa, se sincroniza en un registro privado que solo tú puedes consultar. El país y el lugar aproximado siguen la visibilidad elegida.'
+    :'Si añades ubicación precisa, queda en esta ficha. Si sincronizas después, seguirá en un registro privado que solo tú puedes consultar.';
 }
 function goToView(name) {
   document.querySelectorAll('.view').forEach(view=>view.classList.toggle('active',view.id===name+'-view'));

@@ -86,7 +86,7 @@
             <label>Fecha de captura<input name="date" type="date" required/></label>
             <label>Quién puede verla<select name="visibility"><option value="private">Solo yo</option><option value="followers">Mis seguidores</option><option value="public">Toda la comunidad</option></select></label>
             <label>Notas<textarea name="notes" rows="3" maxlength="500" placeholder="¿Qué observaste? (opcional)"></textarea></label>
-            <div class="location-row"><span>📍 Ubicación precisa</span><button type="button" class="text-button" id="use-location">Añadir ubicación</button></div><small class="location-help">Solo se guardará en este dispositivo.</small>
+            <div class="location-row"><span>📍 Ubicación precisa</span><button type="button" class="text-button" id="use-location">Añadir ubicación</button></div><small class="location-help" id="location-help">Si añades ubicación precisa, se guardará en privado con la captura. El país y el lugar aproximado siguen la visibilidad que elijas.</small>
             <button class="save-capture" type="submit">Guardar captura</button>
           </form>
         </section>
