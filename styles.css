@@ -62,6 +62,7 @@
 .detail-photo img{width:100%;height:100%;object-fit:cover}
 .species-detail-card h2{margin:0 0 4px}.detail-scientific{font:italic 14px Georgia,serif;color:#738075;margin:0 0 15px}
 .species-description,.detail-notes{font-size:12px;line-height:1.7;color:#657468}
+.identification-note{margin:0 0 14px;padding:10px 12px;border-radius:11px;background:#eef3e9;color:#526b53;font-size:10px;line-height:1.55}.identification-note strong{font-size:10px}.identification-note span{color:#718070}
 .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:16px 0}
 .detail-grid>div{padding:11px;background:#f0f3ed;border-radius:12px;min-width:0}
 .detail-grid small,.detail-grid strong{display:block}.detail-grid small{font-size:8px;letter-spacing:1px;color:#859085;margin-bottom:5px}.detail-grid strong{font-size:11px;overflow-wrap:anywhere}

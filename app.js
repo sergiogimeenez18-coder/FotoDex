@@ -51,6 +51,13 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&a
 const kindLabel = kind => ({ aves:'Ave', mamiferos:'Mamífero', reptiles:'Reptil', anfibios:'Anfibio', insectos:'Insecto', peces:'Pez', otros:'Otro' })[kind] || 'Animal';
 const norm = value => String(value || '').trim().toLocaleLowerCase('es');
 const matchesSpecies = (a, b) => (a.scientific && b.scientific && norm(a.scientific) === norm(b.scientific)) || norm(a.name) === norm(b.name);
+function identificationInfo(item) {
+  if(item?.identificationSource==='ai'){
+    const raw=Number(item.identificationConfidence),score=Number.isFinite(raw)?Math.round(Math.max(0,Math.min(1,raw))*100):null;
+    return `<p class="identification-note"><strong>✳ Sugerencia asistida por IA</strong>${score===null?'':` · Coincidencia orientativa: ${score}%`}<br/><span>La estimación no está calibrada y puede equivocarse. Revisa la identificación.</span></p>`;
+  }
+  return '<p class="identification-note"><strong>Identificación manual</strong><br/><span>Nombre añadido por la persona que hizo la captura.</span></p>';
+}
 
 function db() {
   return new Promise((resolve, reject) => {
@@ -497,7 +504,7 @@ function showCaptureDetails(id) {
   const src=imageURL(item), place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
   document.querySelector('#species-detail-content').innerHTML=`
     <div class="detail-photo">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:'🐾'}</div>
-    <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>
+    <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth} × ${item.photoHeight} px</strong></div></div>
     ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
     <div class="detail-actions"><button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
@@ -508,7 +515,7 @@ function showCloudCaptureDetails(id) {
   const src=imageURL(item),place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
   document.querySelector('#species-detail-content').innerHTML=`
     <div class="detail-photo">${src?`<img src="${esc(src)}" alt="${esc(item.name)}"/>`:'🐾'}</div>
-    <p class="eyebrow">CAPTURA COMPARTIDA · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>
+    <p class="eyebrow">CAPTURA COMPARTIDA · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <p class="capture-user"><span class="mini-avatar">${esc(item.initial)}</span>${esc(item.user)}</p>
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth||'—'} × ${item.photoHeight||'—'} px</strong></div></div>
     ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">La ubicación exacta no se comparte; solo el propietario puede verla.</p>`;
