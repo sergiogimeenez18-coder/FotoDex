@@ -37,6 +37,7 @@ let editingId = null;
 let previewURL = null;
 let supabaseClient = null;
 let authUser = null;
+let pendingSyncPromise = null;
 let activeProfile = null;
 let cloudCaptures = [];
 let profileCloudCaptures = [];
@@ -465,9 +466,11 @@ async function handleAuthSession(session) {
   try {
     const profile=await ensureProfile(authUser);
     updateAccountUI(profile);
+    const syncedPending=await syncPendingCaptures();
     await loadCloudCaptures();
     await refreshSocialCounts();
     await loadNotifications();
+    if(syncedPending)notify(`${syncedPending} captura${syncedPending===1?'':'s'} pendiente${syncedPending===1?'':'s'} sincronizada${syncedPending===1?'':'s'}.`);
   } catch(error) {
     console.warn('FotoDex cloud sync:',error);
     updateAccountUI();
@@ -626,8 +629,8 @@ async function saveCapture(event) {
   try {
     let cloudSaved=false;
     if(authUser&&supabaseClient&&(!previous?.cloudSynced||previous.cloudUserId===authUser.id)){
-      try{await uploadCaptureToCloud(item,previous);item.cloudSynced=true;item.cloudUserId=authUser.id;cloudSaved=true}
-      catch(error){console.warn('FotoDex capture upload:',error);item.cloudSynced=Boolean(previous?.cloudSynced);item.cloudSyncPending=true}
+      try{await uploadCaptureToCloud(item,previous);item.cloudSynced=true;item.cloudSyncPending=false;item.cloudUserId=authUser.id;cloudSaved=true}
+      catch(error){console.warn('FotoDex capture upload:',error);item.cloudSynced=Boolean(previous?.cloudSynced);item.cloudUserId=previous?.cloudUserId||authUser.id;item.cloudSyncPending=true}
     }
     await writeCapture(item); modal(captureModal,false); resetEditor(); await refresh();
     if(cloudSaved){await loadCloudCaptures();renderAll();notify('Captura guardada en tu cuenta.');}
@@ -656,8 +659,24 @@ async function uploadCaptureToCloud(item,previous=null){
     if(removed.error)throw removed.error;
   }
 }
+async function syncPendingCaptures(){
+  if(!authUser||!supabaseClient||!navigator.onLine)return 0;
+  if(pendingSyncPromise)return pendingSyncPromise;
+  const ownerId=authUser.id;
+  pendingSyncPromise=(async()=>{
+    const local=await readCaptures();let synced=0;
+    for(const item of local.filter(capture=>capture.cloudSyncPending&&capture.cloudUserId===ownerId)){
+      if(authUser?.id!==ownerId)break;
+      try{await uploadCaptureToCloud(item,item);item.cloudSynced=true;item.cloudSyncPending=false;await writeCapture(item);synced++}
+      catch(error){console.warn('FotoDex pending sync:',error)}
+    }
+    if(synced)captures=await readCaptures();
+    return synced;
+  })();
+  try{return await pendingSyncPromise}finally{pendingSyncPromise=null}
+}
 async function retryCaptureSync(id){
-  const item=captures.find(capture=>capture.id===id);if(!item||!authUser||!supabaseClient)return;
+  const item=captures.find(capture=>capture.id===id);if(!item||!item.cloudSyncPending||item.cloudUserId!==authUser?.id||!supabaseClient)return;
   const button=document.querySelector('[data-retry-sync]');if(button){button.disabled=true;button.textContent='Sincronizando…'}
   try{await uploadCaptureToCloud(item,item);item.cloudSynced=true;item.cloudSyncPending=false;item.cloudUserId=authUser.id;await writeCapture(item);await loadCloudCaptures();renderAll();showCaptureDetails(id);notify('Captura sincronizada con tu cuenta.')}
   catch(error){console.warn('FotoDex capture retry:',error);notify('Sigue sin poder sincronizarse. Revisa la conexión e inténtalo de nuevo.')}
@@ -670,7 +689,7 @@ function showCaptureDetails(id) {
     <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth} × ${item.photoHeight} px</strong></div></div>
     ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSyncPending?'Hay cambios pendientes de sincronizar; la copia de tu cuenta podría estar desactualizada.':item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
-    <div class="detail-actions">${item.cloudSyncPending&&authUser?`<button class="edit-button" data-retry-sync="${esc(item.id)}">Reintentar sincronización</button>`:''}<button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
+    <div class="detail-actions">${item.cloudSyncPending&&item.cloudUserId===authUser?.id?`<button class="edit-button" data-retry-sync="${esc(item.id)}">Reintentar sincronización</button>`:''}<button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
   modal(detailModal,true);
 }
 function showCloudCaptureDetails(id,profileCapture=null) {
@@ -840,5 +859,6 @@ document.addEventListener('click',async event=>{
 });
 
 refresh().catch(()=>{renderAll();notify('Abre FotoDex desde su dirección web segura para guardar capturas.')});
+window.addEventListener('online',async()=>{try{const synced=await syncPendingCaptures();if(synced){await loadCloudCaptures();renderAll();notify(`${synced} captura${synced===1?'':'s'} pendiente${synced===1?'':'s'} sincronizada${synced===1?'':'s'}.`)}}catch(error){console.warn('FotoDex online sync:',error)}});
 setAuthMode('signin');initCloud();setupAppInstall();
 if('serviceWorker' in navigator && location.protocol.startsWith('http')) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
