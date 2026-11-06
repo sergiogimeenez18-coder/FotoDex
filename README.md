@@ -8,7 +8,7 @@ FotoDex es una aplicación web móvil instalable (PWA) para registrar observacio
 - Reducir las imágenes a un máximo de 1920 px y guardarlas como JPEG optimizado antes de almacenarlas.
 - Crear, editar, consultar y eliminar fichas con nombre común y científico, grupo, hábitat, país, lugar, fecha y notas.
 - Guardar las fichas e imágenes en IndexedDB del navegador. La ubicación precisa es opcional y permanece en el dispositivo.
-- Explorar la colección con búsqueda y filtros por grupo, estado de captura, hábitat y país.
+- Explorar la colección con búsqueda y filtros por grupo, estado de captura, hábitat, país y fichas sin nombre científico; estas últimas se marcan para facilitar su revisión.
 - Ver fichas de especies introductorias, progreso personal y ejemplos visuales de la comunidad.
 - Crear una cuenta e iniciar sesión con correo y contraseña; guardar nuevas capturas en Supabase.
 - Elegir si una captura es privada, visible para seguidores o pública; la foto vive en un bucket privado.

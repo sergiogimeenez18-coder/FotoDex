@@ -14,6 +14,7 @@
 .species-scientific{font:italic 10px Georgia,serif;color:#7d8980;margin:0 0 10px}
 .species-foot{gap:5px}.species-foot>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .badge-muted{background:#f0f2ee;color:#7c887e}
+.badge-review{background:#fff0d5;color:#815d22}
 .advanced-filters{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:14px;background:#e9efe4;border-radius:16px;margin:0 0 15px}
 .advanced-filters.filters-open{display:grid}
 .advanced-filters label,#capture-form label{display:grid;gap:6px;font-size:10px;font-weight:700;color:#5f7162;min-width:0}

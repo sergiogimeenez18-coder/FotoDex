@@ -167,10 +167,11 @@ function localCard(item) {
 }
 function speciesCard(item) {
   const src = item.capture ? imageURL(item.capture) : '';
+  const needsScientific=Boolean(item.capture&&!String(item.capture.scientific||'').trim());
   return `<button type="button" class="species-card" data-species="${esc(item.name)}">
     <span class="species-art ${src?'has-photo':''}" style="background:${item.palette}">${src ? `<img src="${src}" alt="${esc(item.name)}" loading="lazy" decoding="async"/>` : `<span class="creature">${item.emoji}</span>`}</span>
     <span class="species-copy"><span class="species-title">${esc(item.name)}</span><span class="species-scientific">${esc(item.scientific)}</span>
-      <span class="species-foot"><span>⌖ ${esc(item.capture?.place || item.capture?.habitat || item.habitat)}</span><span class="badge ${item.seen?'':'badge-muted'}">${item.seen?'Capturada':'Por descubrir'}</span></span>
+      <span class="species-foot"><span>⌖ ${esc(item.capture?.place || item.capture?.habitat || item.habitat)}</span><span class="badge ${needsScientific?'badge-review':item.seen?'':'badge-muted'}">${needsScientific?'Completar ficha':item.seen?'Capturada':'Por descubrir'}</span></span>
     </span>
   </button>`;
 }
@@ -210,8 +211,10 @@ function renderSpecies() {
   const filtered = entries().filter(item => {
     const h = item.capture?.habitat || item.habitat || '';
     const c = item.capture?.country || '';
+    const missingScientific=Boolean(item.capture&&!String(item.capture.scientific||'').trim());
     const text = norm([item.name,item.scientific,item.kind,h,c].join(' '));
-    return (type==='todas'||type===item.kind) && (status==='todas'||(status==='capturadas'?item.seen:!item.seen))
+    const statusMatch=status==='todas'||(status==='capturadas'?item.seen:status==='pendientes'?!item.seen:missingScientific);
+    return (type==='todas'||type===item.kind) && statusMatch
       && (habitat==='todos'||h===habitat) && (!country||norm(c).includes(country)) && text.includes(term);
   });
   document.querySelector('#species-grid').innerHTML = filtered.length ? filtered.map(speciesCard).join('') : '<div class="empty-state"><strong>No encontramos especies</strong>Prueba con otro nombre o cambia los filtros.</div>';
@@ -711,7 +714,8 @@ function showSpeciesDetails(name) {
     <p class="eyebrow">FICHA DE ESPECIE · ${item.seen?'YA CAPTURADA':'POR DESCUBRIR'}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific)}</p><p class="species-description">${esc(item.description)}</p>
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.capture?.habitat||item.habitat)}</strong></div><div><small>ESTADO</small><strong>${item.seen?'Capturada':'Aún no capturada'}</strong></div><div><small>UBICACIÓN</small><strong>${esc(item.capture?.place||item.capture?.country||'Pendiente')}</strong></div></div>
     <p class="privacy-note">Ficha introductoria; revisaremos los datos científicos al conectar una fuente de referencia.</p>
-    ${item.capture?`<div class="detail-actions"><button class="edit-button" data-open-capture="${esc(item.capture.id)}">Ver mi captura</button></div>`:''}`;
+    ${item.capture&&!String(item.capture.scientific||'').trim()?'<p class="privacy-note">Tu captura aún no tiene nombre científico. Puedes completarlo en la ficha.</p>':''}
+    ${item.capture?`<div class="detail-actions"><button class="edit-button" data-open-capture="${esc(item.capture.id)}">${!String(item.capture.scientific||'').trim()?'Completar ficha':'Ver mi captura'}</button></div>`:''}`;
   modal(detailModal,true);
 }
 function useLocation() {
