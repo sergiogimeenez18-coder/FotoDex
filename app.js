@@ -268,6 +268,47 @@ function renderAll() {
   document.querySelector('#profile-grid').innerHTML = ownSpecies.length ? ownSpecies.map(speciesCard).join('') : '<div class="empty-state"><strong>Tu actividad aparecerá aquí</strong>Guarda tu primera captura para empezar.</div>';
 }
 async function refresh() { captures = await readCaptures(); renderAll(); }
+async function exportBackup(){
+  const button=document.querySelector('#backup-export');button.disabled=true;button.textContent='Preparando…';
+  try{
+    const items=await readCaptures();if(!items.length){notify('Todavía no hay capturas guardadas en este navegador.');return}
+    const backup={format:'fotodex-backup',version:1,exportedAt:new Date().toISOString(),captures:await Promise.all(items.map(async item=>({
+      name:item.name,scientific:item.scientific||'',kind:item.kind,habitat:item.habitat||'',country:item.country||'',place:item.place||'',notes:item.notes||'',capturedOn:item.capturedOn,
+      photoDataUrl:await blobDataURL(item.photo),photoWidth:item.photoWidth,photoHeight:item.photoHeight,coordinates:item.coordinates||null,
+      identificationSource:item.identificationSource||'manual',identificationConfidence:item.identificationConfidence??null,createdAt:item.createdAt||new Date().toISOString()
+    })))};
+    const file=new Blob([JSON.stringify(backup)],{type:'application/json'}),url=URL.createObjectURL(file),anchor=document.createElement('a');
+    anchor.href=url;anchor.download=`fotodex-copia-${new Date().toISOString().slice(0,10)}.json`;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify(`Copia descargada · ${items.length} capturas.`);
+  }catch(error){console.warn('FotoDex backup export:',error);notify('No se pudo preparar la copia. Prueba con menos capturas.')}
+  finally{button.disabled=false;button.textContent='Descargar copia'}
+}
+async function importBackupFile(file){
+  if(!file)return;
+  if(file.size>100*1024*1024){notify('La copia supera el límite de 100 MB.');return}
+  let imported=0;
+  try{
+    const backup=JSON.parse(await file.text());
+    if(backup?.format!=='fotodex-backup'||backup.version!==1||!Array.isArray(backup.captures)||backup.captures.length>300)throw new Error('Formato no válido');
+    if(!confirm(`La copia contiene ${backup.captures.length} capturas. Se añadirán como capturas locales privadas con identificadores nuevos; no se subirán a la nube. ¿Continuar?`))return;
+    for(const row of backup.captures){
+      if(typeof row.name!=='string'||!row.name.trim()||row.name.length>90||!['aves','mamiferos','reptiles','anfibios','insectos','peces','otros'].includes(row.kind))continue;
+      const match=typeof row.photoDataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.exec(row.photoDataUrl);if(!match)continue;
+      const bytes=atob(row.photoDataUrl.slice('data:image/jpeg;base64,'.length));if(bytes.length>10*1024*1024)continue;
+      const photo=new Blob([Uint8Array.from(bytes,char=>char.charCodeAt(0))],{type:'image/jpeg'});
+      const capturedOn=/^\d{4}-\d{2}-\d{2}$/.test(row.capturedOn||'')?row.capturedOn:isoToday();
+      const coords=row.coordinates&&Number.isFinite(Number(row.coordinates.latitude))&&Number.isFinite(Number(row.coordinates.longitude))&&Math.abs(Number(row.coordinates.latitude))<=90&&Math.abs(Number(row.coordinates.longitude))<=180
+        ?{latitude:Number(row.coordinates.latitude),longitude:Number(row.coordinates.longitude),accuracy:row.coordinates.accuracy!=null&&Number.isFinite(Number(row.coordinates.accuracy))?Math.max(0,Number(row.coordinates.accuracy)):null}:null;
+      const identificationSource=row.identificationSource==='ai'?'ai':'manual',rawConfidence=Number(row.identificationConfidence);
+      await writeCapture({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+imported),name:row.name.trim(),scientific:typeof row.scientific==='string'?row.scientific.slice(0,120):'',kind:row.kind,
+        habitat:typeof row.habitat==='string'?row.habitat.slice(0,80):'',country:typeof row.country==='string'?row.country.slice(0,80):'',place:typeof row.place==='string'?row.place.slice(0,100):'',notes:typeof row.notes==='string'?row.notes.slice(0,500):'',capturedOn,
+        photo,photoWidth:Number.isInteger(row.photoWidth)&&row.photoWidth>0?row.photoWidth:1,photoHeight:Number.isInteger(row.photoHeight)&&row.photoHeight>0?row.photoHeight:1,coordinates,visibility:'private',
+        identificationSource,identificationConfidence:identificationSource==='ai'&&row.identificationConfidence!=null&&Number.isFinite(rawConfidence)?Math.max(0,Math.min(1,rawConfidence)):null,
+        cloudSynced:false,cloudUserId:null,createdAt:typeof row.createdAt==='string'?row.createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+      imported++;
+    }
+    await refresh();notify(imported?`Se restauraron ${imported} capturas en este dispositivo.`:'No se encontraron capturas válidas en la copia.');
+  }catch(error){console.warn('FotoDex backup import:',error);notify(imported?`Se restauraron ${imported} capturas antes de un error.`:'No se pudo leer esa copia de FotoDex.')}
+}
 
 function setAuthMessage(message, error=false) {
   const el=document.querySelector('#auth-message'); el.textContent=message; el.classList.toggle('error',error);
@@ -683,6 +724,9 @@ document.querySelector('#account-open').addEventListener('click',()=>{setAuthMod
 document.querySelector('#profile-edit').addEventListener('click',()=>{if(!activeProfile)return;const form=document.querySelector('#profile-form');form.elements.display_name.value=activeProfile.display_name||'';form.elements.bio.value=activeProfile.bio||'';updateBioCounter();document.querySelector('#profile-message').textContent='';document.querySelector('#profile-message').classList.remove('error');modal(document.querySelector('#profile-modal'),true)});
 document.querySelector('#profile-form').addEventListener('submit',submitProfile);
 document.querySelector('#profile-form').elements.bio.addEventListener('input',updateBioCounter);
+document.querySelector('#backup-export').addEventListener('click',exportBackup);
+document.querySelector('#backup-import').addEventListener('click',()=>document.querySelector('#backup-file').click());
+document.querySelector('#backup-file').addEventListener('change',async event=>{const file=event.target.files?.[0];await importBackupFile(file);event.target.value=''});
 document.querySelector('#account-signout').addEventListener('click',signOut);
 document.querySelector('#auth-form').addEventListener('submit',submitAuth);
 document.querySelector('#comment-form').addEventListener('submit',submitComment);
