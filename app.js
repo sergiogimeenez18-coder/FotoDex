@@ -41,6 +41,7 @@ let activeProfile = null;
 let cloudCaptures = [];
 let profileCloudCaptures = [];
 let activePublicProfileId = null;
+let notifications = [];
 let authMode = 'signin';
 let followedIds = new Set();
 let exploreMode = 'captures';
@@ -397,6 +398,49 @@ async function refreshSocialCounts() {
   document.querySelector('#profile-follower-count').textContent=followers.count??0;
   document.querySelector('#profile-following-count').textContent=following.count??0;
 }
+function notificationSeenKey(){return authUser?`fotodex-notifications-seen-${authUser.id}`:''}
+function updateNotificationBadge(){
+  const dot=document.querySelector('#notification-dot'),button=document.querySelector('#notification-open');if(!dot||!button)return;
+  if(!authUser){dot.classList.add('hidden');button.setAttribute('aria-label','Notificaciones');return}
+  let seenTime=0;try{seenTime=Date.parse(localStorage.getItem(notificationSeenKey())||'')||0}catch{}
+  const unread=notifications.filter(item=>Date.parse(item.createdAt)>seenTime).length;
+  dot.classList.toggle('hidden',!unread);button.setAttribute('aria-label',unread?`Notificaciones, ${unread} nuevas`:'Notificaciones');
+}
+async function loadNotifications(){
+  const list=document.querySelector('#notification-list');
+  if(!authUser||!supabaseClient){notifications=[];updateNotificationBadge();list.innerHTML='<div class="empty-state"><strong>Inicia sesión para ver notificaciones</strong>Los nuevos seguidores, me gusta y comentarios aparecerán aquí.</div>';return false}
+  const ownResult=await supabaseClient.from('captures').select('id,common_name').eq('user_id',authUser.id).order('created_at',{ascending:false}).limit(100);
+  if(ownResult.error){list.innerHTML='<div class="empty-state">No se pudieron cargar las notificaciones.</div>';return false}
+  const ownRows=ownResult.data||[],ids=ownRows.map(row=>row.id),captureNames=new Map(ownRows.map(row=>[row.id,row.common_name]));
+  const empty={data:[],error:null};
+  const [likes,comments,follows]=await Promise.all([
+    ids.length?supabaseClient.from('capture_likes').select('capture_id,user_id,created_at').in('capture_id',ids).neq('user_id',authUser.id).order('created_at',{ascending:false}).limit(25):empty,
+    ids.length?supabaseClient.from('capture_comments').select('capture_id,user_id,body,created_at').in('capture_id',ids).neq('user_id',authUser.id).order('created_at',{ascending:false}).limit(25):empty,
+    supabaseClient.from('follows').select('follower_id,created_at').eq('followed_id',authUser.id).order('created_at',{ascending:false}).limit(25)
+  ]);
+  if(likes.error||comments.error||follows.error){list.innerHTML='<div class="empty-state">No se pudieron cargar las notificaciones.</div>';return false}
+  const actorIds=[...new Set([...(likes.data||[]).map(row=>row.user_id),...(comments.data||[]).map(row=>row.user_id),...(follows.data||[]).map(row=>row.follower_id)])];
+  const profilesResult=actorIds.length?await supabaseClient.from('profiles').select('id,username,display_name').in('id',actorIds):{data:[],error:null};
+  const actors=new Map((profilesResult.data||[]).map(row=>[row.id,row.display_name||row.username||'Explorador']));
+  notifications=[
+    ...(likes.data||[]).map(row=>({id:`like-${row.capture_id}-${row.user_id}-${row.created_at}`,type:'like',actor:actors.get(row.user_id)||'Un explorador',capture:captureNames.get(row.capture_id)||'tu captura',createdAt:row.created_at})),
+    ...(comments.data||[]).map(row=>({id:`comment-${row.capture_id}-${row.user_id}-${row.created_at}`,type:'comment',actor:actors.get(row.user_id)||'Un explorador',capture:captureNames.get(row.capture_id)||'tu captura',body:row.body,createdAt:row.created_at})),
+    ...(follows.data||[]).map(row=>({id:`follow-${row.follower_id}-${row.created_at}`,type:'follow',actor:actors.get(row.follower_id)||'Un explorador',createdAt:row.created_at}))
+  ].sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt));
+  list.innerHTML=notifications.length?notifications.map(item=>{
+    const verb=item.type==='like'?`le gusta tu captura «${esc(item.capture)}»`:item.type==='comment'?`comentó en tu captura «${esc(item.capture)}»`:'empezó a seguirte';
+    const icon=item.type==='like'?'♥':item.type==='comment'?'▢':'＋';
+    const time=Number.isFinite(Date.parse(item.createdAt))?new Intl.DateTimeFormat('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(item.createdAt)):'';
+    return `<article class="notification-row"><span class="notification-icon">${icon}</span><div><p><strong>${esc(item.actor)}</strong> ${verb}.</p>${item.body?`<span class="notification-comment">${esc(item.body)}</span>`:''}<time>${esc(time)}</time></div></article>`
+  }).join(''):'<div class="empty-state"><strong>Aún no hay actividad nueva</strong>Cuando alguien siga tu perfil o interactúe con tus capturas, lo verás aquí.</div>';
+  updateNotificationBadge();return true;
+}
+async function openNotifications(){
+  const list=document.querySelector('#notification-list');modal(document.querySelector('#notifications-modal'),true);
+  if(!authUser){await loadNotifications();return}
+  list.innerHTML='<div class="empty-state">Cargando actividad…</div>';
+  if(await loadNotifications()){try{localStorage.setItem(notificationSeenKey(),notifications[0]?.createdAt||new Date().toISOString())}catch{}updateNotificationBadge()}
+}
 function updateAccountUI(profile=null) {
   const signedIn=Boolean(authUser);
   if(profile)activeProfile=profile;else if(!signedIn)activeProfile=null;
@@ -417,12 +461,13 @@ async function handleAuthSession(session) {
   const changed=authUser?.id!==nextUser?.id;
   if(changed){cloudCaptures=[];followedIds=new Set();renderAll();}
   authUser=nextUser;
-  if(!authUser){cloudCaptures=[];followedIds=new Set();updateAccountUI();renderAll();return}
+  if(!authUser){cloudCaptures=[];followedIds=new Set();notifications=[];updateNotificationBadge();updateAccountUI();renderAll();return}
   try {
     const profile=await ensureProfile(authUser);
     updateAccountUI(profile);
     await loadCloudCaptures();
     await refreshSocialCounts();
+    await loadNotifications();
   } catch(error) {
     console.warn('FotoDex cloud sync:',error);
     updateAccountUI();
@@ -489,7 +534,7 @@ async function signOut() {
   if(!supabaseClient)return;
   const {error}=await supabaseClient.auth.signOut();
   if(error){notify('No se pudo cerrar sesión.');return}
-  authUser=null;cloudCaptures=[];followedIds=new Set();updateAccountUI();await refresh();notify('Sesión cerrada. Las capturas locales siguen en este dispositivo.');
+  authUser=null;cloudCaptures=[];followedIds=new Set();notifications=[];updateNotificationBadge();updateAccountUI();await refresh();notify('Sesión cerrada. Las capturas locales siguen en este dispositivo.');
 }
 
 function resetEditor() {
@@ -745,6 +790,7 @@ document.querySelector('#backup-file').addEventListener('change',async event=>{c
 document.querySelector('#account-signout').addEventListener('click',signOut);
 document.querySelector('#auth-form').addEventListener('submit',submitAuth);
 document.querySelector('#comment-form').addEventListener('submit',submitComment);
+document.querySelector('#notification-open').addEventListener('click',openNotifications);
 document.querySelectorAll('[data-auth-mode]').forEach(button=>button.addEventListener('click',()=>setAuthMode(button.dataset.authMode)));
 photoInput.addEventListener('change',async event=>{
   const file=event.target.files?.[0]; if(!file)return;
@@ -756,11 +802,12 @@ document.addEventListener('click',async event=>{
   const view=event.target.closest('[data-view]'); if(view){goToView(view.dataset.view);return}
   if(event.target.closest('[data-action="camera"]')){showChoice();return}
   if(event.target.closest('[data-action="open-auth"]')){setAuthMode('signin');modal(document.querySelector('#auth-modal'),true);return}
-  if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else if(document.querySelector('#explorer-profile-modal').classList.contains('open')){modal(document.querySelector('#explorer-profile-modal'),false);activePublicProfileId=null;profileCloudCaptures=[]}else if(document.querySelector('#profile-modal').classList.contains('open'))modal(document.querySelector('#profile-modal'),false);else if(document.querySelector('#auth-modal').classList.contains('open'))modal(document.querySelector('#auth-modal'),false);else if(document.querySelector('#comments-modal').classList.contains('open'))modal(document.querySelector('#comments-modal'),false);else{modal(captureModal,false);resetEditor()}return}
+  if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else if(document.querySelector('#notifications-modal').classList.contains('open'))modal(document.querySelector('#notifications-modal'),false);else if(document.querySelector('#explorer-profile-modal').classList.contains('open')){modal(document.querySelector('#explorer-profile-modal'),false);activePublicProfileId=null;profileCloudCaptures=[]}else if(document.querySelector('#profile-modal').classList.contains('open'))modal(document.querySelector('#profile-modal'),false);else if(document.querySelector('#auth-modal').classList.contains('open'))modal(document.querySelector('#auth-modal'),false);else if(document.querySelector('#comments-modal').classList.contains('open'))modal(document.querySelector('#comments-modal'),false);else{modal(captureModal,false);resetEditor()}return}
   if(event.target===captureModal){modal(captureModal,false);resetEditor();return}
   if(event.target===document.querySelector('#auth-modal')){modal(document.querySelector('#auth-modal'),false);return}
   if(event.target===document.querySelector('#profile-modal')){modal(document.querySelector('#profile-modal'),false);return}
   if(event.target===document.querySelector('#explorer-profile-modal')){modal(document.querySelector('#explorer-profile-modal'),false);activePublicProfileId=null;profileCloudCaptures=[];return}
+  if(event.target===document.querySelector('#notifications-modal')){modal(document.querySelector('#notifications-modal'),false);return}
   if(event.target===document.querySelector('#comments-modal')){modal(document.querySelector('#comments-modal'),false);return}
   if(event.target===detailModal){modal(detailModal,false);return}
   const edit=event.target.closest('[data-edit-capture]');

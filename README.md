@@ -13,6 +13,7 @@ FotoDex es una aplicación web móvil instalable (PWA) para registrar observacio
 - Crear una cuenta e iniciar sesión con correo y contraseña; guardar nuevas capturas en Supabase.
 - Elegir si una captura es privada, visible para seguidores o pública; la foto vive en un bucket privado.
 - Seguir a otros usuarios, dar me gusta y comentar capturas compartidas.
+- Ver notificaciones de nuevos seguidores, me gusta y comentarios en tus capturas.
 - Buscar exploradores por nombre visible o nombre de usuario y seguir/dejar de seguir desde los resultados.
 - Pedir hasta tres sugerencias de identificación animal a partir de una copia reducida de la foto; la persona elige cuál aplicar y revisa los datos antes de guardar.
 - Descargar y restaurar copias JSON de las capturas guardadas en el dispositivo; las ubicaciones precisas se excluyen a menos que se elija incluirlas.
