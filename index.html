@@ -51,10 +51,11 @@
 
         <section class="view" id="explore-view" aria-label="Explorar capturas">
           <div class="page-heading"><p class="eyebrow">OBSERVACIONES DE LA COMUNIDAD</p><h1>Explorar</h1><p class="muted">Inspírate con lo que encuentran otros.</p></div>
-          <div class="community-note">Vista de ejemplo. Las capturas de otros exploradores aparecerán cuando conectemos las cuentas.</div>
-          <div class="searchbar"><span>⌕</span><input id="explore-search" placeholder="Animal, lugar o persona..." aria-label="Buscar"/><button aria-label="Filtros">☷</button></div>
-          <div class="filter-chips"><button class="chip selected">Para ti</button><button class="chip">Cerca de ti</button><button class="chip">Tendencias</button></div>
-          <div class="capture-list" id="explore-list"></div>
+          <div class="community-note">Las capturas reales se muestran según su privacidad. Las publicaciones marcadas como «ejemplo» son ilustrativas.</div>
+          <div class="filter-chips explore-tabs"><button class="chip selected" data-explore-mode="captures">Capturas</button><button class="chip" data-explore-mode="people">Exploradores</button></div>
+          <div class="searchbar"><span>⌕</span><input id="explore-search" placeholder="Animal, lugar o persona..." aria-label="Buscar"/><button aria-label="Buscar">↵</button></div>
+          <div id="explore-captures-panel"><div class="capture-list" id="explore-list"></div></div>
+          <div id="explore-people-panel" class="hidden"><div id="people-list" class="people-list"></div></div>
         </section>
       </main>
 
@@ -76,7 +77,7 @@
         <section class="modal-card capture-form-card hidden" id="capture-editor">
           <button class="modal-close" aria-label="Cerrar">×</button><button class="back-link" id="back-to-choice">← Cambiar foto</button><p class="eyebrow">TU NUEVA CAPTURA</p><h2>Completa la ficha</h2>
           <div class="photo-preview-wrap"><img id="photo-preview" alt="Vista previa de tu fotografía"/><span id="photo-size"></span></div>
-          <div class="ai-note"><span>✳</span><div><strong>Identificación con IA</strong><small>Se activará al conectar el servicio. Por ahora puedes completar los datos manualmente.</small></div></div>
+          <div class="ai-note"><span>✳</span><div><strong>Identificación con IA</strong><small>Al pulsar, se enviará una versión reducida de esta foto a OpenAI a través de FotoDex para sugerir especies. No se envía tu ubicación. Revisa la sugerencia: puede equivocarse.</small><button type="button" class="identify-button" id="identify-photo">✳ Identificar animal</button><div id="ai-results" class="ai-results" aria-live="polite"></div></div></div>
           <form id="capture-form">
             <label>Nombre común <span>*</span><input name="name" required maxlength="90" placeholder="Ej. Petirrojo europeo" autocomplete="off"/></label>
             <label>Nombre científico<input name="scientific" maxlength="120" placeholder="Ej. Erithacus rubecula" autocomplete="off"/></label>

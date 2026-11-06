@@ -39,6 +39,13 @@ let supabaseClient = null;
 let authUser = null;
 let cloudCaptures = [];
 let authMode = 'signin';
+let followedIds = new Set();
+let exploreMode = 'captures';
+let peopleSearchRun = 0;
+let peopleSearchTimer = null;
+let aiCandidates = [];
+let identificationSource = 'manual';
+let identificationConfidence = null;
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const kindLabel = kind => ({ aves:'Ave', mamiferos:'Mamífero', reptiles:'Reptil', anfibios:'Anfibio', insectos:'Insecto', peces:'Pez', otros:'Otro' })[kind] || 'Animal';
@@ -185,9 +192,32 @@ function renderSpecies() {
   document.querySelector('#species-grid').innerHTML = filtered.length ? filtered.map(speciesCard).join('') : '<div class="empty-state"><strong>No encontramos especies</strong>Prueba con otro nombre o cambia los filtros.</div>';
 }
 function renderExplore() {
+  const peopleMode=exploreMode==='people';
+  document.querySelector('#explore-captures-panel').classList.toggle('hidden',peopleMode);
+  document.querySelector('#explore-people-panel').classList.toggle('hidden',!peopleMode);
+  document.querySelectorAll('[data-explore-mode]').forEach(button=>button.classList.toggle('selected',button.dataset.exploreMode===exploreMode));
+  if(peopleMode){renderPeople();return}
   const term = norm(document.querySelector('#explore-search').value);
   const visible = [...cloudCaptures, ...demoObservations].filter(item=>norm([item.name,item.scientific,item.place,item.user].join(' ')).includes(term));
   document.querySelector('#explore-list').innerHTML = visible.length ? visible.map(communityCard).join('') : '<div class="empty-state"><strong>No encontramos esa observación</strong>Prueba con otro término.</div>';
+}
+async function renderPeople() {
+  const list=document.querySelector('#people-list'),run=++peopleSearchRun;
+  if(!authUser){list.innerHTML='<div class="empty-state"><strong>Explora la comunidad</strong>Inicia sesión para buscar y seguir a otros exploradores.<br/><button class="edit-button" data-action="open-auth">Iniciar sesión</button></div>';return}
+  const term=String(document.querySelector('#explore-search').value||'').trim().replace(/[%_*(),]/g,' ').replace(/\s+/g,' ');
+  if(term.length<2){list.innerHTML='<div class="empty-state"><strong>Busca exploradores</strong>Escribe al menos dos letras de su nombre o usuario.</div>';return}
+  list.innerHTML='<div class="empty-state">Buscando exploradores…</div>';
+  await new Promise(resolve=>{clearTimeout(peopleSearchTimer);peopleSearchTimer=setTimeout(resolve,220)});
+  if(run!==peopleSearchRun)return;
+  const pattern=`%${term}%`;
+  const [usernames,names]=await Promise.all([
+    supabaseClient.from('profiles').select('id,username,display_name,bio').ilike('username',pattern).limit(20),
+    supabaseClient.from('profiles').select('id,username,display_name,bio').ilike('display_name',pattern).limit(20)
+  ]);
+  if(run!==peopleSearchRun)return;
+  if(usernames.error||names.error){list.innerHTML='<div class="empty-state"><strong>No se pudo buscar</strong>Comprueba la conexión e inténtalo otra vez.</div>';return}
+  const people=[...new Map([...(usernames.data||[]),...(names.data||[])].filter(person=>person.id!==authUser.id).map(person=>[person.id,person])).values()];
+  list.innerHTML=people.length?people.map(person=>`<article class="person-result"><span class="person-avatar">${esc((person.display_name||person.username||'F').slice(0,1).toUpperCase())}</span><div class="person-copy"><strong>${esc(person.display_name||'Explorador FotoDex')}</strong><small>@${esc(person.username)}</small>${person.bio?`<p>${esc(person.bio)}</p>`:''}</div><button class="follow-button" data-follow-user="${esc(person.id)}">${followedIds.has(person.id)?'Siguiendo':'Seguir'}</button></article>`).join(''):'<div class="empty-state"><strong>No encontramos exploradores</strong>Prueba con otro nombre o usuario.</div>';
 }
 function renderAll() {
   clearURLs(); updateCounts(); setOptions();
@@ -237,9 +267,12 @@ async function ensureProfile(user) {
 }
 async function loadCloudCaptures() {
   if(!authUser)return;
-  const fields='id,user_id,common_name,scientific_name,animal_group,habitat,country,place,captured_on,notes,image_path,image_width,image_height,visibility,created_at';
+  const fields='id,user_id,common_name,scientific_name,animal_group,habitat,country,place,captured_on,notes,image_path,image_width,image_height,identification_source,identification_confidence,visibility,created_at';
   const {data,error}=await supabaseClient.from('captures').select(fields).order('created_at',{ascending:false}).limit(40);
   if(error)throw error;
+  const {data:followRows,error:followError}=await supabaseClient.from('follows').select('followed_id').eq('follower_id',authUser.id);
+  if(followError)throw followError;
+  followedIds=new Set((followRows||[]).map(row=>row.followed_id));
   if(!data.length){cloudCaptures=[];return}
   const paths=data.map(row=>row.image_path);
   const {data:signed,error:signedError}=await supabaseClient.storage.from('captures').createSignedUrls(paths,3600);
@@ -247,21 +280,18 @@ async function loadCloudCaptures() {
   const {data:profiles}=await supabaseClient.from('profiles').select('id,username,display_name').in('id',[...new Set(data.map(row=>row.user_id))]);
   const authors=new Map((profiles||[]).map(profile=>[profile.id,profile]));
   const ids=data.map(row=>row.id);
-  const [likeResult,commentResult,followingResult]=await Promise.all([
+  const [likeResult,commentResult]=await Promise.all([
     supabaseClient.from('capture_likes').select('capture_id,user_id').in('capture_id',ids),
-    supabaseClient.from('capture_comments').select('capture_id').in('capture_id',ids),
-    supabaseClient.from('follows').select('followed_id').eq('follower_id',authUser.id)
+    supabaseClient.from('capture_comments').select('capture_id').in('capture_id',ids)
   ]);
   if(likeResult.error)throw likeResult.error;
   if(commentResult.error)throw commentResult.error;
-  if(followingResult.error)throw followingResult.error;
   const likeRows=likeResult.data||[],commentRows=commentResult.data||[];
-  const followingIds=new Set((followingResult.data||[]).map(row=>row.followed_id));
   cloudCaptures=data.map((row,index)=>{
     const author=authors.get(row.user_id)||{};
     const liked=likeRows.some(like=>like.capture_id===row.id&&like.user_id===authUser.id);
     const photo=signed?.find(item=>item.path===row.image_path)?.signedUrl||'';
-    return {id:row.id,cloudId:row.id,userId:row.user_id,name:row.common_name,scientific:row.scientific_name,kind:row.animal_group,habitat:row.habitat,country:row.country,place:[row.place,row.country].filter(Boolean).join(', ')||'Ubicación no indicada',capturedOn:row.captured_on,notes:row.notes,imagePath:row.image_path,imageUrl:photo,photoWidth:row.image_width,photoHeight:row.image_height,visibility:row.visibility,createdAt:row.created_at,user:author.display_name||author.username||'Explorador',initial:(author.display_name||author.username||'F').slice(0,1).toUpperCase(),ago:niceDate(row.captured_on),likes:likeRows.filter(like=>like.capture_id===row.id).length,comments:commentRows.filter(comment=>comment.capture_id===row.id).length,liked,following:followingIds.has(row.user_id),demo:false,palette:'linear-gradient(145deg,#dce9d7,#799477)'};
+    return {id:row.id,cloudId:row.id,userId:row.user_id,name:row.common_name,scientific:row.scientific_name,kind:row.animal_group,habitat:row.habitat,country:row.country,place:[row.place,row.country].filter(Boolean).join(', ')||'Ubicación no indicada',capturedOn:row.captured_on,notes:row.notes,imagePath:row.image_path,imageUrl:photo,photoWidth:row.image_width,photoHeight:row.image_height,identificationSource:row.identification_source||'manual',identificationConfidence:row.identification_confidence,visibility:row.visibility,createdAt:row.created_at,user:author.display_name||author.username||'Explorador',initial:(author.display_name||author.username||'F').slice(0,1).toUpperCase(),ago:niceDate(row.captured_on),likes:likeRows.filter(like=>like.capture_id===row.id).length,comments:commentRows.filter(comment=>comment.capture_id===row.id).length,liked,following:followedIds.has(row.user_id),demo:false,palette:'linear-gradient(145deg,#dce9d7,#799477)'};
   });
 }
 async function refreshSocialCounts() {
@@ -286,8 +316,9 @@ function updateAccountUI(profile=null) {
 async function handleAuthSession(session) {
   const nextUser=session?.user||null;
   const changed=authUser?.id!==nextUser?.id;
+  if(changed){cloudCaptures=[];followedIds=new Set();renderAll();}
   authUser=nextUser;
-  if(!authUser){cloudCaptures=[];updateAccountUI();renderAll();return}
+  if(!authUser){cloudCaptures=[];followedIds=new Set();updateAccountUI();renderAll();return}
   try {
     const profile=await ensureProfile(authUser);
     updateAccountUI(profile);
@@ -309,7 +340,7 @@ async function initCloud() {
     supabaseClient=createClient(config.url,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     supabaseClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>handleAuthSession(session),0));
     const {data,error}=await supabaseClient.auth.getSession();
-    if(error)throw error;
+    if(error){if(error.context?.status===503){results.innerHTML='<span class="ai-status">Falta configurar OPENAI_API_KEY en los secretos de Supabase. No se envió la foto al modelo.</span>';return}throw error}
     if(data.session)await handleAuthSession(data.session);else updateAccountUI();
   } catch(error) {
     console.warn('FotoDex cloud unavailable:',error);
@@ -342,11 +373,13 @@ async function signOut() {
   if(!supabaseClient)return;
   const {error}=await supabaseClient.auth.signOut();
   if(error){notify('No se pudo cerrar sesión.');return}
-  authUser=null;cloudCaptures=[];updateAccountUI();await refresh();notify('Sesión cerrada. Las capturas locales siguen en este dispositivo.');
+  authUser=null;cloudCaptures=[];followedIds=new Set();updateAccountUI();await refresh();notify('Sesión cerrada. Las capturas locales siguen en este dispositivo.');
 }
 
 function resetEditor() {
   form.reset(); activePhoto = null; coordinates = null; editingId = null;
+  aiCandidates=[]; identificationSource='manual'; identificationConfidence=null;
+  document.querySelector('#ai-results').replaceChildren();document.querySelector('#identify-photo').disabled=false;
   if (previewURL) URL.revokeObjectURL(previewURL);
   previewURL = null; document.querySelector('#photo-size').textContent = '';
   document.querySelector('#use-location').textContent = 'Añadir ubicación';
@@ -356,6 +389,7 @@ function showChoice() {
 }
 function showEditor(photo, existing=null) {
   activePhoto=photo; editingId=existing?.id||null; coordinates=existing?.coordinates||null;
+  identificationSource=existing?.identificationSource||'manual';identificationConfidence=existing?.identificationConfidence??null;aiCandidates=[];document.querySelector('#ai-results').replaceChildren();
   choicePanel.classList.add('hidden'); editorPanel.classList.remove('hidden');
   if(previewURL) URL.revokeObjectURL(previewURL);
   previewURL=URL.createObjectURL(photo.blob); document.querySelector('#photo-preview').src=previewURL;
@@ -368,6 +402,30 @@ function showEditor(photo, existing=null) {
   document.querySelector('#use-location').textContent=coordinates?'Ubicación añadida ✓':'Añadir ubicación';
   modal(captureModal,true);
 }
+function resizedIdentificationImage(blob) {
+  return new Promise((resolve,reject)=>{
+    const img=new Image(),url=URL.createObjectURL(blob);
+    img.onload=()=>{const scale=Math.min(1,1200/Math.max(img.width,img.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));const ctx=canvas.getContext('2d',{alpha:false});if(!ctx){URL.revokeObjectURL(url);reject(new Error('No se pudo preparar la foto.'));return}ctx.drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob(result=>result?resolve(result):reject(new Error('No se pudo preparar la foto.')),'image/jpeg',.68)};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('No se pudo abrir la foto.'))};img.src=url;
+  });
+}
+function blobDataURL(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('No se pudo leer la foto.'));reader.readAsDataURL(blob)})}
+async function identifyAnimal(){
+  const button=document.querySelector('#identify-photo'),results=document.querySelector('#ai-results');
+  if(!activePhoto){results.innerHTML='<span class="ai-status">Primero elige una foto.</span>';return}
+  if(!authUser||!supabaseClient){results.innerHTML='<span class="ai-status">Inicia sesión para usar la identificación. Tus fichas manuales siguen disponibles.</span>';modal(document.querySelector('#auth-modal'),true);return}
+  button.disabled=true;results.innerHTML='<span class="ai-status">Preparando una copia reducida y consultando…</span>';
+  try{
+    const smallImage=await resizedIdentificationImage(activePhoto.blob),image_data_url=await blobDataURL(smallImage);
+    const {data,error}=await supabaseClient.functions.invoke('identify-animal',{body:{image_data_url,language:'es'}});
+    if(error)throw error;
+    aiCandidates=Array.isArray(data?.observations)?data.observations:[];
+    if(!data?.is_animal||!aiCandidates.length){results.innerHTML='<span class="ai-status">No pude reconocer un animal con suficiente seguridad. Prueba otra foto o completa la ficha manualmente.</span>';return}
+    results.innerHTML='<span class="ai-status">Elige la sugerencia que mejor encaja. La IA puede equivocarse.</span>'+aiCandidates.map((candidate,index)=>`<button type="button" class="ai-candidate" data-ai-candidate="${index}"><strong>${esc(candidate.common_name)}</strong><em>${esc(candidate.scientific_name)}</em><small>${esc(kindLabel(candidate.animal_group))} · Coincidencia orientativa: ${Math.round(candidate.confidence*100)}%${candidate.rationale?' · '+esc(candidate.rationale):''}</small></button>`).join('');
+  }catch(error){console.warn('FotoDex identification:',error);results.innerHTML='<span class="ai-status">No se pudo identificar. Comprueba la conexión y que el servicio de IA esté configurado en FotoDex.</span>'}
+  finally{button.disabled=false}
+}
+function applyAiCandidate(index){const candidate=aiCandidates[index];if(!candidate)return;form.elements.name.value=candidate.common_name;form.elements.scientific.value=candidate.scientific_name;form.elements.kind.value=candidate.animal_group;identificationSource='ai';identificationConfidence=candidate.confidence;document.querySelector('#ai-results').innerHTML='<span class="ai-status">Sugerencia aplicada. Comprueba los datos antes de guardar; hábitat y ubicación se completan por separado.</span>'}
 function pickPhoto(camera) {
   if(camera) photoInput.setAttribute('capture','environment'); else photoInput.removeAttribute('capture');
   photoInput.click();
@@ -399,6 +457,7 @@ async function saveCapture(event) {
     notes:String(data.get('notes')).trim(), capturedOn:String(data.get('date')),
     photo:activePhoto.blob, photoWidth:activePhoto.width, photoHeight:activePhoto.height,
     coordinates, visibility:String(data.get('visibility')||'private'),
+    identificationSource,identificationConfidence,
     cloudSynced:Boolean(previous?.cloudSynced),cloudUserId:previous?.cloudUserId||null,createdAt:previous?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString()
   };
   const button=document.querySelector('.save-capture'); button.disabled=true; button.textContent='Guardando…';
@@ -422,7 +481,7 @@ async function uploadCaptureToCloud(item,previous=null){
   const path=`${authUser.id}/${item.id}.jpg`;
   const uploaded=await supabaseClient.storage.from('captures').upload(path,item.photo,{contentType:'image/jpeg',cacheControl:'31536000',upsert:updateExisting});
   if(uploaded.error)throw uploaded.error;
-  const row={id:item.id,user_id:authUser.id,common_name:item.name,scientific_name:item.scientific,animal_group:item.kind,habitat:item.habitat,country:item.country,place:item.place,captured_on:item.capturedOn,notes:item.notes,image_path:path,image_width:item.photoWidth,image_height:item.photoHeight,identification_source:'manual',visibility:item.visibility||'private'};
+  const row={id:item.id,user_id:authUser.id,common_name:item.name,scientific_name:item.scientific,animal_group:item.kind,habitat:item.habitat,country:item.country,place:item.place,captured_on:item.capturedOn,notes:item.notes,image_path:path,image_width:item.photoWidth,image_height:item.photoHeight,identification_source:item.identificationSource||'manual',identification_confidence:item.identificationConfidence??null,visibility:item.visibility||'private'};
   const result=updateExisting
     ? await supabaseClient.from('captures').update(row).eq('id',item.id).select('id').single()
     : await supabaseClient.from('captures').insert(row).select('id').single();
@@ -494,12 +553,13 @@ async function toggleCloudLike(id) {
 }
 async function toggleFollowUser(id) {
   if(!authUser){modal(document.querySelector('#auth-modal'),true);setAuthMode('signin');setAuthMessage('Inicia sesión para seguir a otros exploradores.');return}
-  const item=cloudCaptures.find(capture=>capture.userId===id);if(!item)return;
-  const following=item.following;
+  if(id===authUser.id)return;
+  const following=followedIds.has(id);
   const result=following
     ? await supabaseClient.from('follows').delete().eq('follower_id',authUser.id).eq('followed_id',id)
     : await supabaseClient.from('follows').insert({follower_id:authUser.id,followed_id:id});
   if(result.error){notify('No se pudo actualizar el seguimiento.');return}
+  if(following)followedIds.delete(id);else followedIds.add(id);
   await loadCloudCaptures();await refreshSocialCounts();renderAll();
 }
 let activeCommentsCapture=null;
@@ -534,11 +594,13 @@ document.querySelector('#explore-search').addEventListener('input',renderExplore
 document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.addEventListener('click',()=>{
   document.querySelectorAll('.chip[data-filter]').forEach(item=>item.classList.remove('selected')); chip.classList.add('selected'); renderSpecies();
 }));
+document.querySelectorAll('[data-explore-mode]').forEach(button=>button.addEventListener('click',()=>{exploreMode=button.dataset.exploreMode;renderExplore()}));
 document.querySelector('#filter-button').addEventListener('click',()=>document.querySelector('#advanced-filters').classList.toggle('filters-open'));
 document.querySelector('#take-photo').addEventListener('click',()=>pickPhoto(true));
 document.querySelector('#choose-photo').addEventListener('click',()=>pickPhoto(false));
 document.querySelector('#back-to-choice').addEventListener('click',()=>{choicePanel.classList.remove('hidden');editorPanel.classList.add('hidden');resetEditor()});
 document.querySelector('#use-location').addEventListener('click',useLocation);
+document.querySelector('#identify-photo').addEventListener('click',identifyAnimal);
 form.addEventListener('submit',saveCapture);
 document.querySelector('#account-open').addEventListener('click',()=>{setAuthMode('signin');modal(document.querySelector('#auth-modal'),true)});
 document.querySelector('#account-signout').addEventListener('click',signOut);
@@ -551,8 +613,10 @@ photoInput.addEventListener('change',async event=>{
   finally{event.target.value=''}
 });
 document.addEventListener('click',async event=>{
+  const aiCandidate=event.target.closest('[data-ai-candidate]');if(aiCandidate){applyAiCandidate(Number(aiCandidate.dataset.aiCandidate));return}
   const view=event.target.closest('[data-view]'); if(view){goToView(view.dataset.view);return}
   if(event.target.closest('[data-action="camera"]')){showChoice();return}
+  if(event.target.closest('[data-action="open-auth"]')){setAuthMode('signin');modal(document.querySelector('#auth-modal'),true);return}
   if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else if(document.querySelector('#auth-modal').classList.contains('open'))modal(document.querySelector('#auth-modal'),false);else if(document.querySelector('#comments-modal').classList.contains('open'))modal(document.querySelector('#comments-modal'),false);else{modal(captureModal,false);resetEditor()}return}
   if(event.target===captureModal){modal(captureModal,false);resetEditor();return}
   if(event.target===document.querySelector('#auth-modal')){modal(document.querySelector('#auth-modal'),false);return}
