@@ -207,6 +207,7 @@ function renderSpecies() {
   const status = document.querySelector('#status-filter').value;
   const habitat = document.querySelector('#habitat-filter').value;
   const country = norm(document.querySelector('#country-filter').value);
+  const sort = document.querySelector('#species-sort').value;
   const term = norm(document.querySelector('#search-input').value);
   const filtered = entries().filter(item => {
     const h = item.capture?.habitat || item.habitat || '';
@@ -216,6 +217,13 @@ function renderSpecies() {
     const statusMatch=status==='todas'||(status==='capturadas'?item.seen:status==='pendientes'?!item.seen:missingScientific);
     return (type==='todas'||type===item.kind) && statusMatch
       && (habitat==='todos'||h===habitat) && (!country||norm(c).includes(country)) && text.includes(term);
+  });
+  filtered.sort((a,b)=>{
+    if(sort==='name')return a.name.localeCompare(b.name,'es',{sensitivity:'base'});
+    const da=Date.parse(a.capture?.capturedOn||''),db=Date.parse(b.capture?.capturedOn||''),hasA=Number.isFinite(da),hasB=Number.isFinite(db);
+    if(hasA!==hasB)return hasA?-1:1;
+    if(hasA&&da!==db)return sort==='oldest'?da-db:db-da;
+    return a.name.localeCompare(b.name,'es',{sensitivity:'base'});
   });
   document.querySelector('#species-grid').innerHTML = filtered.length ? filtered.map(speciesCard).join('') : '<div class="empty-state"><strong>No encontramos especies</strong>Prueba con otro nombre o cambia los filtros.</div>';
 }
@@ -794,7 +802,8 @@ document.querySelector('#search-input').addEventListener('input',renderSpecies);
 document.querySelector('#explore-search').addEventListener('input',renderExplore);
 document.querySelector('#explore-filter-button').addEventListener('click',()=>document.querySelector('#explore-filters').classList.toggle('filters-open'));
 ['explore-group-filter','explore-habitat-filter','explore-country-filter'].forEach(id=>document.querySelector('#'+id).addEventListener('change',renderExplore));
-['status-filter','habitat-filter','country-filter'].forEach(id=>document.querySelector('#'+id).addEventListener('input',renderSpecies));
+['status-filter','habitat-filter','species-sort'].forEach(id=>document.querySelector('#'+id).addEventListener('change',renderSpecies));
+document.querySelector('#country-filter').addEventListener('input',renderSpecies);
 document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.addEventListener('click',()=>{
   document.querySelectorAll('.chip[data-filter]').forEach(item=>item.classList.remove('selected')); chip.classList.add('selected'); renderSpecies();
 }));
