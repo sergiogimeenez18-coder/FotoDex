@@ -53,7 +53,8 @@
           <div class="page-heading"><p class="eyebrow">OBSERVACIONES DE LA COMUNIDAD</p><h1>Explorar</h1><p class="muted">Inspírate con lo que encuentran otros.</p></div>
           <div class="community-note">Las capturas reales se muestran según su privacidad. Las publicaciones marcadas como «ejemplo» son ilustrativas.</div>
           <div class="filter-chips explore-tabs"><button class="chip selected" data-explore-mode="captures">Capturas</button><button class="chip" data-explore-mode="people">Exploradores</button></div>
-          <div class="searchbar"><span>⌕</span><input id="explore-search" placeholder="Animal, lugar o persona..." aria-label="Buscar"/><button aria-label="Buscar">↵</button></div>
+          <div class="searchbar"><span>⌕</span><input id="explore-search" placeholder="Animal, lugar o persona..." aria-label="Buscar"/><button id="explore-filter-button" type="button" aria-label="Mostrar filtros">☷</button></div>
+          <div class="advanced-filters" id="explore-filters"><label>Grupo animal<select id="explore-group-filter"><option value="todos">Todos los grupos</option></select></label><label>Hábitat<select id="explore-habitat-filter"><option value="todos">Todos los hábitats</option></select></label><label>País<select id="explore-country-filter"><option value="todos">Todos los países</option></select></label></div>
           <div id="explore-captures-panel"><div class="capture-list" id="explore-list"></div></div>
           <div id="explore-people-panel" class="hidden"><div id="people-list" class="people-list"></div></div>
         </section>

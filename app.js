@@ -205,11 +205,21 @@ function renderExplore() {
   const peopleMode=exploreMode==='people';
   document.querySelector('#explore-captures-panel').classList.toggle('hidden',peopleMode);
   document.querySelector('#explore-people-panel').classList.toggle('hidden',!peopleMode);
+  document.querySelector('#explore-filter-button').classList.toggle('hidden',peopleMode);
   document.querySelectorAll('[data-explore-mode]').forEach(button=>button.classList.toggle('selected',button.dataset.exploreMode===exploreMode));
   if(peopleMode){renderPeople();return}
   const term = norm(document.querySelector('#explore-search').value);
-  const visible = [...cloudCaptures, ...demoObservations].filter(item=>norm([item.name,item.scientific,item.place,item.user].join(' ')).includes(term));
+  const all=[...cloudCaptures,...demoObservations];updateExploreFilterOptions(all);
+  const group=document.querySelector('#explore-group-filter').value,habitat=document.querySelector('#explore-habitat-filter').value,country=document.querySelector('#explore-country-filter').value;
+  const visible = all.filter(item=>norm([item.name,item.scientific,item.place,item.user].join(' ')).includes(term)
+    &&(group==='todos'||item.kind===group)&&(habitat==='todos'||norm(item.habitat)===norm(habitat))&&(country==='todos'||norm(item.country)===norm(country)));
   document.querySelector('#explore-list').innerHTML = visible.length ? visible.map(communityCard).join('') : '<div class="empty-state"><strong>No encontramos esa observación</strong>Prueba con otro término.</div>';
+}
+function updateExploreFilterOptions(items){
+  const set=(id,values,defaultText)=>{const select=document.querySelector(id),old=select.value,unique=[...new Map(values.filter(Boolean).map(value=>[norm(value),value])).values()].sort((a,b)=>a.localeCompare(b,'es'));select.innerHTML=`<option value="todos">${defaultText}</option>`+unique.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');if(unique.some(value=>norm(value)===norm(old)))select.value=unique.find(value=>norm(value)===norm(old));else select.value='todos'};
+  set('#explore-group-filter',items.map(item=>item.kind),'Todos los grupos');
+  set('#explore-habitat-filter',items.map(item=>item.habitat),'Todos los hábitats');
+  set('#explore-country-filter',items.map(item=>item.country),'Todos los países');
 }
 async function renderPeople() {
   const list=document.querySelector('#people-list'),run=++peopleSearchRun;
@@ -655,6 +665,8 @@ async function submitComment(event) {
 document.querySelector('#today-label').textContent=new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toLocaleUpperCase('es');
 document.querySelector('#search-input').addEventListener('input',renderSpecies);
 document.querySelector('#explore-search').addEventListener('input',renderExplore);
+document.querySelector('#explore-filter-button').addEventListener('click',()=>document.querySelector('#explore-filters').classList.toggle('filters-open'));
+['explore-group-filter','explore-habitat-filter','explore-country-filter'].forEach(id=>document.querySelector('#'+id).addEventListener('change',renderExplore));
 ['status-filter','habitat-filter','country-filter'].forEach(id=>document.querySelector('#'+id).addEventListener('input',renderSpecies));
 document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.addEventListener('click',()=>{
   document.querySelectorAll('.chip[data-filter]').forEach(item=>item.classList.remove('selected')); chip.classList.add('selected'); renderSpecies();
