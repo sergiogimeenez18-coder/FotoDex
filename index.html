@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f7f2" />
+    <meta name="description" content="Explora la naturaleza. Fotografía, identifica y colecciona animales." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>FotoDex — Tu naturaleza, en colección</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#inicio" aria-label="FotoDex inicio"><span class="brand-mark">✳</span><span>Foto<span>Dex</span></span></a>
+        <button class="icon-button notification" aria-label="Notificaciones"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><i></i></button>
+      </header>
+
+      <main id="main-content">
+        <section class="view active" id="feed-view" aria-label="Explorar">
+          <div class="welcome-row"><div><p class="eyebrow">JUEVES, 6 DE NOVIEMBRE</p><h1>Hola, explorador <span>👋</span></h1></div><div class="avatar">S</div></div>
+          <section class="hero-card">
+            <div class="hero-copy"><span class="hero-kicker">TU PRÓXIMA AVENTURA</span><h2>La naturaleza<br/>está más cerca<br/>de lo que crees.</h2><p>Descubre quién vive a tu alrededor.</p><button class="hero-cta" data-action="camera">Hacer una captura <span>↗</span></button></div>
+            <div class="hero-art" aria-hidden="true"><span class="sun"></span><span class="mountain m1"></span><span class="mountain m2"></span><span class="bird bird1">✦</span><span class="bird bird2">✦</span><span class="hero-leaf">❧</span></div>
+            <div class="hero-label"><span>✦</span> NATURALEZA EN FOCO</div>
+          </section>
+
+          <section class="stats-row" aria-label="Tu progreso"><div class="stat"><span class="stat-icon green">◎</span><div><strong id="species-count">12</strong><small>especies</small></div></div><div class="stat"><span class="stat-icon yellow">✳</span><div><strong id="capture-count">18</strong><small>capturas</small></div></div><div class="stat"><span class="stat-icon blue">⌖</span><div><strong>4</strong><small>hábitats</small></div></div></section>
+
+          <div class="section-heading"><div><p class="eyebrow">LA COMUNIDAD</p><h2>Capturas recientes</h2></div><button class="text-button" data-view="explore">Ver todas <span>→</span></button></div>
+          <div class="capture-list" id="feed-list"></div>
+        </section>
+
+        <section class="view" id="collection-view" aria-label="Mis capturas">
+          <div class="page-heading"><p class="eyebrow">TU COLECCIÓN PERSONAL</p><h1>Mis capturas</h1><p class="muted">Cada encuentro cuenta una historia.</p></div>
+          <div class="collection-progress"><div class="progress-copy"><span>Tu colección</span><strong>12 <small>/ 40 especies</small></strong></div><div class="progress-track"><span style="width:30%"></span></div><div class="progress-foot"><span>¡Vas por buen camino!</span><span>30%</span></div></div>
+          <div class="searchbar"><span>⌕</span><input id="search-input" placeholder="Busca una especie..." aria-label="Buscar especie"/><button aria-label="Filtros" id="filter-button">☷</button></div>
+          <div class="filter-chips"><button class="chip selected" data-filter="todas">Todas <span>12</span></button><button class="chip" data-filter="aves">Aves</button><button class="chip" data-filter="mamiferos">Mamíferos</button><button class="chip" data-filter="reptiles">Reptiles</button></div>
+          <div class="species-grid" id="species-grid"></div>
+        </section>
+
+        <section class="view" id="profile-view" aria-label="Mi perfil">
+          <div class="profile-cover"></div><div class="profile-header"><div class="profile-avatar">S</div><button class="edit-button">Editar perfil</button></div><h1 class="profile-name">Sergio Martín <span>✓</span></h1><p class="profile-handle">@sergioexplora · Madrid, España</p><p class="profile-bio">🌿 Curioso de todo lo que se mueve entre hojas.<br/>📍 Buscando pequeñas maravillas cerca de casa.</p><div class="follow-stats"><div><strong>18</strong><small>capturas</small></div><div><strong>12</strong><small>especies</small></div><div><strong>246</strong><small>seguidores</small></div><div><strong>183</strong><small>siguiendo</small></div></div><div class="section-heading profile-section"><div><p class="eyebrow">MI ACTIVIDAD</p><h2>Últimas capturas</h2></div></div><div class="species-grid" id="profile-grid"></div>
+        </section>
+
+        <section class="view" id="explore-view" aria-label="Explorar capturas">
+          <div class="page-heading"><p class="eyebrow">OBSERVACIONES DE LA COMUNIDAD</p><h1>Explorar</h1><p class="muted">Inspírate con lo que encuentran otros.</p></div>
+          <div class="searchbar"><span>⌕</span><input placeholder="Animal, lugar o persona..." aria-label="Buscar"/><button aria-label="Filtros">☷</button></div>
+          <div class="filter-chips"><button class="chip selected">Para ti</button><button class="chip">Cerca de ti</button><button class="chip">Tendencias</button></div>
+          <div class="capture-list" id="explore-list"></div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Navegación principal">
+        <button class="nav-item active" data-view="feed"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6"/></svg></span><small>Inicio</small></button>
+        <button class="nav-item" data-view="collection"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><small>Capturas</small></button>
+        <button class="camera-nav" data-action="camera" aria-label="Nueva captura"><span><svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span></button>
+        <button class="nav-item" data-view="explore"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4M8 11h6M11 8v6"/></svg></span><small>Explorar</small></button>
+        <button class="nav-item" data-view="profile"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></span><small>Perfil</small></button>
+      </nav>
+      <input type="file" id="photo-input" accept="image/*" capture="environment" hidden />
+      <div class="modal-backdrop" id="capture-modal" aria-hidden="true"><section class="modal-card"><button class="modal-close" aria-label="Cerrar">×</button><div class="modal-icon">📷</div><p class="eyebrow">NUEVA OBSERVACIÓN</p><h2>¿Cómo quieres capturar?</h2><p class="muted">Elige una foto para identificar al animal.</p><button class="modal-option" id="take-photo"><span>◎</span><span><strong>Hacer una foto</strong><small>Usar la cámara de tu móvil</small></span><b>→</b></button><button class="modal-option" id="choose-photo"><span>▧</span><span><strong>Elegir de la galería</strong><small>Subir una foto que ya tienes</small></span><b>→</b></button><p class="privacy-note">Tus fotos se optimizan antes de guardarse. La ubicación es opcional.</p></section></div>
+      <div class="toast" id="toast" role="status"></div>
+    </div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
