@@ -37,6 +37,7 @@ let editingId = null;
 let previewURL = null;
 let supabaseClient = null;
 let authUser = null;
+let activeProfile = null;
 let cloudCaptures = [];
 let authMode = 'signin';
 let followedIds = new Set();
@@ -312,12 +313,16 @@ async function refreshSocialCounts() {
 }
 function updateAccountUI(profile=null) {
   const signedIn=Boolean(authUser);
+  if(profile)activeProfile=profile;else if(!signedIn)activeProfile=null;
   document.querySelector('#account-status').textContent=signedIn?'CUENTA EN LA NUBE':'MODO LOCAL';
+  document.querySelector('#profile-avatar').textContent=(profile?.display_name||'Explorador FotoDex').trim().slice(0,1).toLocaleUpperCase('es');
   document.querySelector('#profile-name').textContent=profile?.display_name||'Explorador FotoDex';
   document.querySelector('#profile-handle').textContent=signedIn?`@${profile?.username||'explorador'} · ${authUser.email||''}`:'Tus observaciones se guardan en este dispositivo.';
   document.querySelector('#profile-bio').innerHTML=signedIn?esc(profile?.bio||'🌿 Explorando la naturaleza con FotoDex.'):'🌿 Tus capturas son privadas en este dispositivo.<br/>☁️ Al iniciar sesión, podrás guardarlas en tu cuenta.';
   document.querySelector('#account-open').classList.toggle('hidden',signedIn);
+  document.querySelector('#profile-edit').classList.toggle('hidden',!signedIn);
   document.querySelector('#account-signout').classList.toggle('hidden',!signedIn);
+  if(profile){document.querySelector('#profile-form').elements.display_name.value=profile.display_name||'';document.querySelector('#profile-form').elements.bio.value=profile.bio||'';updateBioCounter()}
   if(!signedIn){document.querySelector('#profile-follower-count').textContent='—';document.querySelector('#profile-following-count').textContent='—';}
 }
 async function handleAuthSession(session) {
@@ -347,7 +352,7 @@ async function initCloud() {
     supabaseClient=createClient(config.url,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     supabaseClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>handleAuthSession(session),0));
     const {data,error}=await supabaseClient.auth.getSession();
-    if(error){if(error.context?.status===503){results.innerHTML='<span class="ai-status">Falta configurar OPENAI_API_KEY en los secretos de Supabase. No se envió la foto al modelo.</span>';return}throw error}
+    if(error)throw error;
     if(data.session)await handleAuthSession(data.session);else updateAccountUI();
   } catch(error) {
     console.warn('FotoDex cloud unavailable:',error);
@@ -375,6 +380,23 @@ async function submitAuth(event) {
     }
   } catch(error) {setAuthMessage(authErrorMessage(error),true)}
   finally {button.disabled=false;button.textContent=authMode==='signup'?'Crear cuenta':'Entrar'}
+}
+function updateBioCounter(){const bio=document.querySelector('#profile-form').elements.bio.value;document.querySelector('#bio-counter').textContent=`${bio.length} / 240`}
+async function submitProfile(event){
+  event.preventDefault();if(!authUser||!supabaseClient)return;
+  const form=event.currentTarget;if(!form.reportValidity())return;
+  const display_name=String(form.elements.display_name.value).trim(),bio=String(form.elements.bio.value).trim();
+  const button=form.querySelector('button[type="submit"]'),message=document.querySelector('#profile-message');
+  if(!display_name){message.textContent='Escribe un nombre visible.';message.classList.add('error');return}
+  button.disabled=true;button.textContent='Guardando…';message.textContent='';message.classList.remove('error');
+  try{
+    const {data,error}=await supabaseClient.from('profiles').update({display_name,bio}).eq('id',authUser.id).select('id,username,display_name,bio,avatar_path').single();
+    if(error)throw error;
+    activeProfile=data;updateAccountUI(data);modal(document.querySelector('#profile-modal'),false);
+    try{await loadCloudCaptures()}catch(refreshError){console.warn('FotoDex profile refresh:',refreshError)}
+    renderAll();notify('Perfil actualizado.');
+  }catch(error){console.warn('FotoDex profile update:',error);message.textContent='No se pudo guardar. Revisa la conexión e inténtalo de nuevo.';message.classList.add('error')}
+  finally{button.disabled=false;button.textContent='Guardar perfil'}
 }
 async function signOut() {
   if(!supabaseClient)return;
@@ -425,7 +447,7 @@ async function identifyAnimal(){
   try{
     const smallImage=await resizedIdentificationImage(activePhoto.blob),image_data_url=await blobDataURL(smallImage);
     const {data,error}=await supabaseClient.functions.invoke('identify-animal',{body:{image_data_url,language:'es'}});
-    if(error)throw error;
+    if(error){if(error.context?.status===503){results.innerHTML='<span class="ai-status">Falta configurar OPENAI_API_KEY en los secretos de Supabase. No se envió la foto al modelo.</span>';return}throw error}
     aiCandidates=Array.isArray(data?.observations)?data.observations:[];
     if(!data?.is_animal||!aiCandidates.length){results.innerHTML='<span class="ai-status">No pude reconocer un animal con suficiente seguridad. Prueba otra foto o completa la ficha manualmente.</span>';return}
     results.innerHTML='<span class="ai-status">Elige la sugerencia que mejor encaja. La IA puede equivocarse.</span>'+aiCandidates.map((candidate,index)=>`<button type="button" class="ai-candidate" data-ai-candidate="${index}"><strong>${esc(candidate.common_name)}</strong><em>${esc(candidate.scientific_name)}</em><small>${esc(kindLabel(candidate.animal_group))} · Coincidencia orientativa: ${Math.round(candidate.confidence*100)}%${candidate.rationale?' · '+esc(candidate.rationale):''}</small></button>`).join('');
@@ -610,6 +632,9 @@ document.querySelector('#use-location').addEventListener('click',useLocation);
 document.querySelector('#identify-photo').addEventListener('click',identifyAnimal);
 form.addEventListener('submit',saveCapture);
 document.querySelector('#account-open').addEventListener('click',()=>{setAuthMode('signin');modal(document.querySelector('#auth-modal'),true)});
+document.querySelector('#profile-edit').addEventListener('click',()=>{if(!activeProfile)return;const form=document.querySelector('#profile-form');form.elements.display_name.value=activeProfile.display_name||'';form.elements.bio.value=activeProfile.bio||'';updateBioCounter();document.querySelector('#profile-message').textContent='';document.querySelector('#profile-message').classList.remove('error');modal(document.querySelector('#profile-modal'),true)});
+document.querySelector('#profile-form').addEventListener('submit',submitProfile);
+document.querySelector('#profile-form').elements.bio.addEventListener('input',updateBioCounter);
 document.querySelector('#account-signout').addEventListener('click',signOut);
 document.querySelector('#auth-form').addEventListener('submit',submitAuth);
 document.querySelector('#comment-form').addEventListener('submit',submitComment);
@@ -624,9 +649,10 @@ document.addEventListener('click',async event=>{
   const view=event.target.closest('[data-view]'); if(view){goToView(view.dataset.view);return}
   if(event.target.closest('[data-action="camera"]')){showChoice();return}
   if(event.target.closest('[data-action="open-auth"]')){setAuthMode('signin');modal(document.querySelector('#auth-modal'),true);return}
-  if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else if(document.querySelector('#auth-modal').classList.contains('open'))modal(document.querySelector('#auth-modal'),false);else if(document.querySelector('#comments-modal').classList.contains('open'))modal(document.querySelector('#comments-modal'),false);else{modal(captureModal,false);resetEditor()}return}
+  if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else if(document.querySelector('#profile-modal').classList.contains('open'))modal(document.querySelector('#profile-modal'),false);else if(document.querySelector('#auth-modal').classList.contains('open'))modal(document.querySelector('#auth-modal'),false);else if(document.querySelector('#comments-modal').classList.contains('open'))modal(document.querySelector('#comments-modal'),false);else{modal(captureModal,false);resetEditor()}return}
   if(event.target===captureModal){modal(captureModal,false);resetEditor();return}
   if(event.target===document.querySelector('#auth-modal')){modal(document.querySelector('#auth-modal'),false);return}
+  if(event.target===document.querySelector('#profile-modal')){modal(document.querySelector('#profile-modal'),false);return}
   if(event.target===document.querySelector('#comments-modal')){modal(document.querySelector('#comments-modal'),false);return}
   if(event.target===detailModal){modal(detailModal,false);return}
   const edit=event.target.closest('[data-edit-capture]');
