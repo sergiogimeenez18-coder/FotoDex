@@ -133,7 +133,7 @@ function entries() {
 
 function communityCard(item) {
   return `<article class="capture-card">
-    <button type="button" class="capture-photo community-photo" style="background:${item.palette}" ${item.cloudId?`data-cloud-capture="${esc(item.cloudId)}"`:''} aria-label="Abrir captura de ${esc(item.name)}">${item.imageUrl?`<img src="${esc(item.imageUrl)}" alt="${esc(item.name)}"/>`:`<span class="photo-sky"></span><span class="animal">${item.emoji}</span>`}</button>
+    <button type="button" class="capture-photo community-photo" style="background:${item.palette}" ${item.cloudId?`data-cloud-capture="${esc(item.cloudId)}"`:''} aria-label="Abrir captura de ${esc(item.name)}">${item.imageUrl?`<img src="${esc(item.imageUrl)}" alt="${esc(item.name)}" loading="lazy" decoding="async"/>`:`<span class="photo-sky"></span><span class="animal">${item.emoji}</span>`}</button>
     <div class="capture-info"><h3 class="common">${esc(item.name)}</h3><p class="scientific">${esc(item.scientific)}</p>
       <div class="capture-meta"><span>⌖ ${esc(item.place)}</span><span>◷ ${esc(item.ago)}</span></div>
       <div class="capture-user"><span class="mini-avatar">${esc(item.initial)}</span>${item.cloudId&&item.userId?`<button type="button" class="person-name" data-open-profile="${esc(item.userId)}">${esc(item.user)}</button>`:esc(item.user)}${item.demo===false?'':' · ejemplo'}${item.cloudId&&item.userId!==authUser?.id?`<button class="follow-button" data-follow-user="${esc(item.userId)}">${item.following?'Siguiendo':'Seguir'}</button>`:''}</div>
@@ -143,7 +143,7 @@ function communityCard(item) {
 function localCard(item) {
   const src = imageURL(item);
   return `<article class="capture-card">
-    <button class="capture-photo photo-button" data-open-capture="${esc(item.id)}" aria-label="Abrir ficha de ${esc(item.name)}">${src ? `<img src="${src}" alt="${esc(item.name)}"/>` : '<span class="animal">🐾</span>'}</button>
+    <button class="capture-photo photo-button" data-open-capture="${esc(item.id)}" aria-label="Abrir ficha de ${esc(item.name)}">${src ? `<img src="${src}" alt="${esc(item.name)}" loading="lazy" decoding="async"/>` : '<span class="animal">🐾</span>'}</button>
     <div class="capture-info"><h3 class="common">${esc(item.name)}</h3><p class="scientific">${esc(item.scientific || 'Nombre científico pendiente')}</p>
       <div class="capture-meta"><span>⌖ ${esc(item.place || item.country || 'Ubicación no indicada')}</span><span>◷ ${esc(niceDate(item.capturedOn))}</span></div>
       <div class="capture-user"><span class="mini-avatar local-mini">T</span>${item.cloudSynced?'Tu captura · sincronizada con tu cuenta':'Tu captura · solo en este dispositivo'}</div>
@@ -153,7 +153,7 @@ function localCard(item) {
 function speciesCard(item) {
   const src = item.capture ? imageURL(item.capture) : '';
   return `<button type="button" class="species-card" data-species="${esc(item.name)}">
-    <span class="species-art ${src?'has-photo':''}" style="background:${item.palette}">${src ? `<img src="${src}" alt="${esc(item.name)}"/>` : `<span class="creature">${item.emoji}</span>`}</span>
+    <span class="species-art ${src?'has-photo':''}" style="background:${item.palette}">${src ? `<img src="${src}" alt="${esc(item.name)}" loading="lazy" decoding="async"/>` : `<span class="creature">${item.emoji}</span>`}</span>
     <span class="species-copy"><span class="species-title">${esc(item.name)}</span><span class="species-scientific">${esc(item.scientific)}</span>
       <span class="species-foot"><span>⌖ ${esc(item.capture?.place || item.capture?.habitat || item.habitat)}</span><span class="badge ${item.seen?'':'badge-muted'}">${item.seen?'Capturada':'Por descubrir'}</span></span>
     </span>
