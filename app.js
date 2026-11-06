@@ -272,9 +272,10 @@ async function exportBackup(){
   const button=document.querySelector('#backup-export');button.disabled=true;button.textContent='Preparando…';
   try{
     const items=await readCaptures();if(!items.length){notify('Todavía no hay capturas guardadas en este navegador.');return}
-    const backup={format:'fotodex-backup',version:1,exportedAt:new Date().toISOString(),captures:await Promise.all(items.map(async item=>({
+    const includePreciseLocations=document.querySelector('#backup-include-location').checked;
+    const backup={format:'fotodex-backup',version:1,exportedAt:new Date().toISOString(),includesPreciseLocations:includePreciseLocations,captures:await Promise.all(items.map(async item=>({
       name:item.name,scientific:item.scientific||'',kind:item.kind,habitat:item.habitat||'',country:item.country||'',place:item.place||'',notes:item.notes||'',capturedOn:item.capturedOn,
-      photoDataUrl:await blobDataURL(item.photo),photoWidth:item.photoWidth,photoHeight:item.photoHeight,coordinates:item.coordinates||null,
+      photoDataUrl:await blobDataURL(item.photo),photoWidth:item.photoWidth,photoHeight:item.photoHeight,coordinates:includePreciseLocations?(item.coordinates||null):null,
       identificationSource:item.identificationSource||'manual',identificationConfidence:item.identificationConfidence??null,createdAt:item.createdAt||new Date().toISOString()
     })))};
     const file=new Blob([JSON.stringify(backup)],{type:'application/json'}),url=URL.createObjectURL(file),anchor=document.createElement('a');
@@ -289,7 +290,8 @@ async function importBackupFile(file){
   try{
     const backup=JSON.parse(await file.text());
     if(backup?.format!=='fotodex-backup'||backup.version!==1||!Array.isArray(backup.captures)||backup.captures.length>300)throw new Error('Formato no válido');
-    if(!confirm(`La copia contiene ${backup.captures.length} capturas. Se añadirán como capturas locales privadas con identificadores nuevos; no se subirán a la nube. ¿Continuar?`))return;
+    const includesPreciseLocations=backup.includesPreciseLocations===true||backup.captures.some(row=>row?.coordinates);
+    if(!confirm(`La copia contiene ${backup.captures.length} capturas${includesPreciseLocations?' e incluye ubicaciones precisas':''}. Se añadirán como capturas locales privadas con identificadores nuevos; no se subirán a la nube. ¿Continuar?`))return;
     for(const row of backup.captures){
       if(typeof row.name!=='string'||!row.name.trim()||row.name.length>90||!['aves','mamiferos','reptiles','anfibios','insectos','peces','otros'].includes(row.kind))continue;
       const match=typeof row.photoDataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.exec(row.photoDataUrl);if(!match)continue;
