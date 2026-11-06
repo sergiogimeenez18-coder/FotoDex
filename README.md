@@ -10,13 +10,26 @@ FotoDex es una aplicación web móvil instalable (PWA) para registrar observacio
 - Guardar las fichas e imágenes en IndexedDB del navegador. La ubicación precisa es opcional y permanece en el dispositivo.
 - Explorar la colección con búsqueda y filtros por grupo, estado de captura, hábitat y país.
 - Ver fichas de especies introductorias, progreso personal y ejemplos visuales de la comunidad.
+- Crear una cuenta e iniciar sesión con correo y contraseña; guardar nuevas capturas en Supabase.
+- Elegir si una captura es privada, visible para seguidores o pública; la foto vive en un bucket privado.
+- Seguir a otros usuarios, dar me gusta y comentar capturas compartidas.
 - Instalar la aplicación y abrir su interfaz básica sin conexión después de cargarla.
 
 ## Limitaciones actuales
 
-Esta versión es un prototipo local de un solo dispositivo. La identificación por IA, las cuentas, la sincronización, las amistades, los seguidores, el feed compartido, los comentarios y los «me gusta» reales aún no están conectados. El contenido de comunidad y varias fichas del catálogo son ejemplos; no deben tomarse como identificaciones científicas confirmadas.
+La identificación por IA todavía no está conectada. Las fichas del catálogo y las publicaciones con la etiqueta «ejemplo» son contenido ilustrativo, no identificaciones científicas confirmadas. Las capturas locales anteriores no se suben automáticamente al iniciar sesión; solo se sincronizan las que se creen o editen con una sesión activa.
 
-Los datos del navegador no se sincronizan entre dispositivos y pueden perderse si se borran los datos del sitio. Para publicar capturas y habilitar la red social hace falta un backend con autenticación, base de datos y almacenamiento de imágenes.
+Las capturas guardadas sin sesión solo existen en ese navegador y pueden perderse al borrar los datos del sitio. La ubicación GPS exacta se guarda en una tabla privada y las políticas de seguridad permiten verla solo al dueño; el país y lugar aproximado siguen los permisos de visibilidad de la captura.
+
+El esquema de nube está en `supabase/initial-schema.sql`. El proyecto Supabase FotoDex está activo y sus tablas tienen RLS habilitado. La app usa una clave publicable; nunca se debe añadir una clave `secret` o `service_role` al código del navegador.
+
+## Preparar el acceso por correo
+
+En Supabase, abre **Authentication → URL Configuration** y configura como **Site URL** y URL de redirección:
+
+`https://sergiogimeenez18-coder.github.io/FotoDex/`
+
+La confirmación por correo depende de esos ajustes y del proveedor de correo configurado en el proyecto.
 
 ## Publicar con GitHub Pages
 

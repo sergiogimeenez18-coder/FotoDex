@@ -35,6 +35,10 @@ let activePhoto = null;
 let coordinates = null;
 let editingId = null;
 let previewURL = null;
+let supabaseClient = null;
+let authUser = null;
+let cloudCaptures = [];
+let authMode = 'signin';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const kindLabel = kind => ({ aves:'Ave', mamiferos:'Mamífero', reptiles:'Reptil', anfibios:'Anfibio', insectos:'Insecto', peces:'Pez', otros:'Otro' })[kind] || 'Animal';
@@ -77,6 +81,7 @@ async function deleteCapture(id) {
   });
 }
 function imageURL(item) {
+  if (item?.imageUrl) return item.imageUrl;
   if (!item?.photo) return '';
   if (!urls.has(item.id)) urls.set(item.id, URL.createObjectURL(item.photo));
   return urls.get(item.id);
@@ -92,11 +97,13 @@ function isoToday() { const d = new Date(); return new Date(d.getTime() - d.getT
 function niceDate(date) { return date ? new Intl.DateTimeFormat('es-ES',{day:'numeric',month:'short',year:'numeric'}).format(new Date(date+'T12:00:00')) : 'Fecha sin indicar'; }
 
 function entries() {
+  const ownCloud = authUser ? cloudCaptures.filter(item => item.userId === authUser.id) : [];
+  const allCaptures = [...captures, ...ownCloud];
   const result = catalog.map(species => {
-    const capture = captures.find(item => matchesSpecies(species, item));
+    const capture = allCaptures.find(item => matchesSpecies(species, item));
     return { ...species, capture, seen: Boolean(capture) };
   });
-  captures.forEach(capture => {
+  allCaptures.forEach(capture => {
     if (!result.some(item => matchesSpecies(item, capture))) result.push({
       name: capture.name, scientific: capture.scientific || 'Nombre científico pendiente', emoji:'🐾',
       kind:capture.kind, habitat:capture.habitat || 'Hábitat pendiente',
@@ -109,11 +116,11 @@ function entries() {
 
 function communityCard(item) {
   return `<article class="capture-card">
-    <div class="capture-photo" style="background:${item.palette}"><span class="photo-sky"></span><span class="animal">${item.emoji}</span></div>
+    <button type="button" class="capture-photo community-photo" style="background:${item.palette}" ${item.cloudId?`data-cloud-capture="${esc(item.cloudId)}"`:''} aria-label="Abrir captura de ${esc(item.name)}">${item.imageUrl?`<img src="${esc(item.imageUrl)}" alt="${esc(item.name)}"/>`:`<span class="photo-sky"></span><span class="animal">${item.emoji}</span>`}</button>
     <div class="capture-info"><h3 class="common">${esc(item.name)}</h3><p class="scientific">${esc(item.scientific)}</p>
       <div class="capture-meta"><span>⌖ ${esc(item.place)}</span><span>◷ ${esc(item.ago)}</span></div>
-      <div class="capture-user"><span class="mini-avatar">${esc(item.initial)}</span>${esc(item.user)} · ejemplo</div>
-    </div><button class="heart ${item.liked?'liked':''}" data-like="${item.id}" aria-label="Me gusta">${item.liked?'♥':'♡'}<small>${item.likes}</small></button>
+      <div class="capture-user"><span class="mini-avatar">${esc(item.initial)}</span>${esc(item.user)}${item.demo===false?'':' · ejemplo'}${item.cloudId&&item.userId!==authUser?.id?`<button class="follow-button" data-follow-user="${esc(item.userId)}">${item.following?'Siguiendo':'Seguir'}</button>`:''}</div>
+    </div><div class="capture-actions"><button class="heart ${item.liked?'liked':''}" ${item.cloudId?`data-cloud-like="${esc(item.cloudId)}"`:`data-like="${item.id}"`} aria-label="Me gusta">${item.liked?'♥':'♡'}<small>${item.likes}</small></button>${item.cloudId?`<button class="comment-action" data-open-comments="${esc(item.cloudId)}" aria-label="Ver comentarios">▢<small>${item.comments||0}</small></button>`:''}</div>
   </article>`;
 }
 function localCard(item) {
@@ -122,7 +129,7 @@ function localCard(item) {
     <button class="capture-photo photo-button" data-open-capture="${esc(item.id)}" aria-label="Abrir ficha de ${esc(item.name)}">${src ? `<img src="${src}" alt="${esc(item.name)}"/>` : '<span class="animal">🐾</span>'}</button>
     <div class="capture-info"><h3 class="common">${esc(item.name)}</h3><p class="scientific">${esc(item.scientific || 'Nombre científico pendiente')}</p>
       <div class="capture-meta"><span>⌖ ${esc(item.place || item.country || 'Ubicación no indicada')}</span><span>◷ ${esc(niceDate(item.capturedOn))}</span></div>
-      <div class="capture-user"><span class="mini-avatar local-mini">T</span>Tu captura · solo en este dispositivo</div>
+      <div class="capture-user"><span class="mini-avatar local-mini">T</span>${item.cloudSynced?'Tu captura · sincronizada con tu cuenta':'Tu captura · solo en este dispositivo'}</div>
     </div><button class="heart" data-open-capture="${esc(item.id)}" aria-label="Abrir captura">↗</button>
   </article>`;
 }
@@ -138,12 +145,14 @@ function speciesCard(item) {
 
 function updateCounts() {
   const all = entries(), collected = all.filter(item => item.seen).length;
-  const habitats = new Set(captures.map(item => item.habitat).filter(Boolean)).size;
+  const ownCloud = authUser ? cloudCaptures.filter(item => item.userId === authUser.id) : [];
+  const ownCaptures = [...new Map([...captures, ...ownCloud].map(item=>[item.id,item])).values()];
+  const habitats = new Set(ownCaptures.map(item => item.habitat).filter(Boolean)).size;
   const percent = Math.min(100, Math.round(collected / 40 * 100));
-  document.querySelector('#capture-count').textContent = captures.length;
+  document.querySelector('#capture-count').textContent = ownCaptures.length;
   document.querySelector('#species-count').textContent = collected;
   document.querySelector('#habitat-count').textContent = habitats;
-  document.querySelector('#profile-capture-count').textContent = captures.length;
+  document.querySelector('#profile-capture-count').textContent = ownCaptures.length;
   document.querySelector('#profile-species-count').textContent = collected;
   document.querySelector('#progress-count').textContent = collected;
   document.querySelector('#progress-bar').style.width = percent + '%';
@@ -177,18 +186,164 @@ function renderSpecies() {
 }
 function renderExplore() {
   const term = norm(document.querySelector('#explore-search').value);
-  const visible = demoObservations.filter(item=>norm([item.name,item.scientific,item.place,item.user].join(' ')).includes(term));
+  const visible = [...cloudCaptures, ...demoObservations].filter(item=>norm([item.name,item.scientific,item.place,item.user].join(' ')).includes(term));
   document.querySelector('#explore-list').innerHTML = visible.length ? visible.map(communityCard).join('') : '<div class="empty-state"><strong>No encontramos esa observación</strong>Prueba con otro término.</div>';
 }
 function renderAll() {
   clearURLs(); updateCounts(); setOptions();
-  const feed = [...captures.slice(0,3).map(item=>({ ...item, local:true })), ...demoObservations].slice(0,4);
+  const cloudIds = new Set(cloudCaptures.map(item=>item.id));
+  const localOnly = captures.filter(item=>!cloudIds.has(item.id)).slice(0,3);
+  const feed = [...cloudCaptures.slice(0,4), ...localOnly.map(item=>({ ...item, local:true })), ...demoObservations].slice(0,5);
   document.querySelector('#feed-list').innerHTML = feed.length ? feed.map(item=>item.local?localCard(item):communityCard(item)).join('') : '<div class="empty-state"><strong>Aún no hay capturas</strong>Haz tu primera foto para empezar.</div>';
   renderSpecies(); renderExplore();
   const ownSpecies = entries().filter(item=>item.seen).slice(0,4);
   document.querySelector('#profile-grid').innerHTML = ownSpecies.length ? ownSpecies.map(speciesCard).join('') : '<div class="empty-state"><strong>Tu actividad aparecerá aquí</strong>Guarda tu primera captura para empezar.</div>';
 }
 async function refresh() { captures = await readCaptures(); renderAll(); }
+
+function setAuthMessage(message, error=false) {
+  const el=document.querySelector('#auth-message'); el.textContent=message; el.classList.toggle('error',error);
+}
+function setAuthMode(mode) {
+  authMode=mode;
+  const signup=mode==='signup';
+  document.querySelector('#auth-title').textContent=signup?'Crea tu cuenta':'Inicia sesión';
+  document.querySelector('#auth-description').textContent=signup?'Guarda tus capturas en la nube y comparte las que quieras.':'Accede a tus capturas desde tus dispositivos.';
+  document.querySelector('#auth-submit').textContent=signup?'Crear cuenta':'Entrar';
+  document.querySelector('#auth-username-wrap').classList.toggle('hidden',!signup);
+  document.querySelector('#auth-display-wrap').classList.toggle('hidden',!signup);
+  document.querySelector('#auth-form').elements.username.required=signup;
+  document.querySelectorAll('[data-auth-mode]').forEach(button=>button.classList.toggle('selected',button.dataset.authMode===mode));
+  setAuthMessage('');
+}
+function authErrorMessage(error) {
+  const message=String(error?.message||'');
+  if(/invalid login credentials/i.test(message))return 'Correo o contraseña incorrectos.';
+  if(/already registered|already been registered/i.test(message))return 'Ese correo ya tiene una cuenta. Inicia sesión.';
+  if(/password should be at least/i.test(message))return 'La contraseña debe tener al menos 8 caracteres.';
+  if(/username/i.test(message))return 'Ese nombre de usuario ya está en uso o no tiene un formato válido.';
+  return message||'No se pudo completar la operación. Prueba de nuevo.';
+}
+async function ensureProfile(user) {
+  const {data:existing,error:readError}=await supabaseClient.from('profiles').select('id,username,display_name,bio,avatar_path').eq('id',user.id).maybeSingle();
+  if(readError)throw readError;
+  if(existing)return existing;
+  const meta=user.user_metadata||{};
+  const fallback=String(user.email||'explorador').split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,18)||'explorador';
+  const profile={id:user.id,username:String(meta.username||`${fallback}_${user.id.slice(0,4)}`).toLowerCase(),display_name:String(meta.display_name||'Explorador FotoDex').slice(0,60)};
+  const {data,error}=await supabaseClient.from('profiles').insert(profile).select('id,username,display_name,bio,avatar_path').single();
+  if(error)throw error;
+  return data;
+}
+async function loadCloudCaptures() {
+  if(!authUser)return;
+  const fields='id,user_id,common_name,scientific_name,animal_group,habitat,country,place,captured_on,notes,image_path,image_width,image_height,visibility,created_at';
+  const {data,error}=await supabaseClient.from('captures').select(fields).order('created_at',{ascending:false}).limit(40);
+  if(error)throw error;
+  if(!data.length){cloudCaptures=[];return}
+  const paths=data.map(row=>row.image_path);
+  const {data:signed,error:signedError}=await supabaseClient.storage.from('captures').createSignedUrls(paths,3600);
+  if(signedError)throw signedError;
+  const {data:profiles}=await supabaseClient.from('profiles').select('id,username,display_name').in('id',[...new Set(data.map(row=>row.user_id))]);
+  const authors=new Map((profiles||[]).map(profile=>[profile.id,profile]));
+  const ids=data.map(row=>row.id);
+  const [likeResult,commentResult,followingResult]=await Promise.all([
+    supabaseClient.from('capture_likes').select('capture_id,user_id').in('capture_id',ids),
+    supabaseClient.from('capture_comments').select('capture_id').in('capture_id',ids),
+    supabaseClient.from('follows').select('followed_id').eq('follower_id',authUser.id)
+  ]);
+  if(likeResult.error)throw likeResult.error;
+  if(commentResult.error)throw commentResult.error;
+  if(followingResult.error)throw followingResult.error;
+  const likeRows=likeResult.data||[],commentRows=commentResult.data||[];
+  const followingIds=new Set((followingResult.data||[]).map(row=>row.followed_id));
+  cloudCaptures=data.map((row,index)=>{
+    const author=authors.get(row.user_id)||{};
+    const liked=likeRows.some(like=>like.capture_id===row.id&&like.user_id===authUser.id);
+    const photo=signed?.find(item=>item.path===row.image_path)?.signedUrl||'';
+    return {id:row.id,cloudId:row.id,userId:row.user_id,name:row.common_name,scientific:row.scientific_name,kind:row.animal_group,habitat:row.habitat,country:row.country,place:[row.place,row.country].filter(Boolean).join(', ')||'Ubicación no indicada',capturedOn:row.captured_on,notes:row.notes,imagePath:row.image_path,imageUrl:photo,photoWidth:row.image_width,photoHeight:row.image_height,visibility:row.visibility,createdAt:row.created_at,user:author.display_name||author.username||'Explorador',initial:(author.display_name||author.username||'F').slice(0,1).toUpperCase(),ago:niceDate(row.captured_on),likes:likeRows.filter(like=>like.capture_id===row.id).length,comments:commentRows.filter(comment=>comment.capture_id===row.id).length,liked,following:followingIds.has(row.user_id),demo:false,palette:'linear-gradient(145deg,#dce9d7,#799477)'};
+  });
+}
+async function refreshSocialCounts() {
+  if(!authUser)return;
+  const [followers,following]=await Promise.all([
+    supabaseClient.from('follows').select('follower_id',{count:'exact',head:true}).eq('followed_id',authUser.id),
+    supabaseClient.from('follows').select('followed_id',{count:'exact',head:true}).eq('follower_id',authUser.id)
+  ]);
+  document.querySelector('#profile-follower-count').textContent=followers.count??0;
+  document.querySelector('#profile-following-count').textContent=following.count??0;
+}
+function updateAccountUI(profile=null) {
+  const signedIn=Boolean(authUser);
+  document.querySelector('#account-status').textContent=signedIn?'CUENTA EN LA NUBE':'MODO LOCAL';
+  document.querySelector('#profile-name').textContent=profile?.display_name||'Explorador FotoDex';
+  document.querySelector('#profile-handle').textContent=signedIn?`@${profile?.username||'explorador'} · ${authUser.email||''}`:'Tus observaciones se guardan en este dispositivo.';
+  document.querySelector('#profile-bio').innerHTML=signedIn?esc(profile?.bio||'🌿 Explorando la naturaleza con FotoDex.'):'🌿 Tus capturas son privadas en este dispositivo.<br/>☁️ Al iniciar sesión, podrás guardarlas en tu cuenta.';
+  document.querySelector('#account-open').classList.toggle('hidden',signedIn);
+  document.querySelector('#account-signout').classList.toggle('hidden',!signedIn);
+  if(!signedIn){document.querySelector('#profile-follower-count').textContent='—';document.querySelector('#profile-following-count').textContent='—';}
+}
+async function handleAuthSession(session) {
+  const nextUser=session?.user||null;
+  const changed=authUser?.id!==nextUser?.id;
+  authUser=nextUser;
+  if(!authUser){cloudCaptures=[];updateAccountUI();renderAll();return}
+  try {
+    const profile=await ensureProfile(authUser);
+    updateAccountUI(profile);
+    await loadCloudCaptures();
+    await refreshSocialCounts();
+  } catch(error) {
+    console.warn('FotoDex cloud sync:',error);
+    updateAccountUI();
+    notify('Sesión activa, pero no se pudo cargar la nube.');
+  }
+  if(changed)notify('Sesión iniciada. Tus capturas en la nube están disponibles.');
+  renderAll();
+}
+async function initCloud() {
+  const config=window.FOTODEX_SUPABASE;
+  if(!config?.url||!config?.publishableKey){updateAccountUI();return}
+  try {
+    const {createClient}=await import('https://esm.sh/@supabase/supabase-js@2.95.0');
+    supabaseClient=createClient(config.url,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    supabaseClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>handleAuthSession(session),0));
+    const {data,error}=await supabaseClient.auth.getSession();
+    if(error)throw error;
+    if(data.session)await handleAuthSession(data.session);else updateAccountUI();
+  } catch(error) {
+    console.warn('FotoDex cloud unavailable:',error);
+    document.querySelector('#account-status').textContent='NUBE NO DISPONIBLE';
+    notify('No se pudo conectar con la nube. Puedes seguir guardando localmente.');
+  }
+}
+async function submitAuth(event) {
+  event.preventDefault();
+  if(!supabaseClient){setAuthMessage('La conexión a la nube aún no está disponible.',true);return}
+  if(!event.currentTarget.reportValidity())return;
+  const data=new FormData(event.currentTarget),email=String(data.get('email')).trim(),password=String(data.get('password'));
+  const button=document.querySelector('#auth-submit');button.disabled=true;button.textContent='Conectando…';setAuthMessage('');
+  try {
+    if(authMode==='signup'){
+      const username=String(data.get('username')).trim().toLowerCase();
+      const {data:result,error}=await supabaseClient.auth.signUp({email,password,options:{data:{username,display_name:String(data.get('display_name')).trim()||'Explorador FotoDex'},emailRedirectTo:window.location.href}});
+      if(error)throw error;
+      if(result.session){await handleAuthSession(result.session);modal(document.querySelector('#auth-modal'),false);event.currentTarget.reset();notify('Cuenta creada.');}
+      else setAuthMessage('Revisa tu correo para confirmar la cuenta y después vuelve a iniciar sesión.');
+    } else {
+      const {data:result,error}=await supabaseClient.auth.signInWithPassword({email,password});
+      if(error)throw error;
+      await handleAuthSession(result.session);modal(document.querySelector('#auth-modal'),false);event.currentTarget.reset();
+    }
+  } catch(error) {setAuthMessage(authErrorMessage(error),true)}
+  finally {button.disabled=false;button.textContent=authMode==='signup'?'Crear cuenta':'Entrar'}
+}
+async function signOut() {
+  if(!supabaseClient)return;
+  const {error}=await supabaseClient.auth.signOut();
+  if(error){notify('No se pudo cerrar sesión.');return}
+  authUser=null;cloudCaptures=[];updateAccountUI();await refresh();notify('Sesión cerrada. Las capturas locales siguen en este dispositivo.');
+}
 
 function resetEditor() {
   form.reset(); activePhoto = null; coordinates = null; editingId = null;
@@ -209,6 +364,7 @@ function showEditor(photo, existing=null) {
   form.elements.kind.value=existing?.kind||''; form.elements.habitat.value=existing?.habitat||'';
   form.elements.country.value=existing?.country||''; form.elements.place.value=existing?.place||'';
   form.elements.notes.value=existing?.notes||''; form.elements.date.value=existing?.capturedOn||isoToday();
+  form.elements.visibility.value=existing?.visibility||'private';
   document.querySelector('#use-location').textContent=coordinates?'Ubicación añadida ✓':'Añadir ubicación';
   modal(captureModal,true);
 }
@@ -242,12 +398,40 @@ async function saveCapture(event) {
     country:String(data.get('country')).trim(), place:String(data.get('place')).trim(),
     notes:String(data.get('notes')).trim(), capturedOn:String(data.get('date')),
     photo:activePhoto.blob, photoWidth:activePhoto.width, photoHeight:activePhoto.height,
-    coordinates, createdAt:previous?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString()
+    coordinates, visibility:String(data.get('visibility')||'private'),
+    cloudSynced:Boolean(previous?.cloudSynced),cloudUserId:previous?.cloudUserId||null,createdAt:previous?.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString()
   };
   const button=document.querySelector('.save-capture'); button.disabled=true; button.textContent='Guardando…';
-  try { await writeCapture(item); modal(captureModal,false); resetEditor(); await refresh(); notify('Captura guardada en este dispositivo.'); }
+  try {
+    let cloudSaved=false;
+    if(authUser&&supabaseClient&&(!previous?.cloudSynced||previous.cloudUserId===authUser.id)){
+      try{await uploadCaptureToCloud(item,previous);item.cloudSynced=true;item.cloudUserId=authUser.id;cloudSaved=true}
+      catch(error){console.warn('FotoDex capture upload:',error);item.cloudSynced=Boolean(previous?.cloudSynced)}
+    }
+    await writeCapture(item); modal(captureModal,false); resetEditor(); await refresh();
+    if(cloudSaved){await loadCloudCaptures();renderAll();notify('Captura guardada en tu cuenta.');}
+    else if(authUser)notify('Guardada en este dispositivo; no se pudo sincronizar.');
+    else notify('Captura guardada en este dispositivo.');
+  }
   catch { notify('No se pudo guardar. Revisa el espacio disponible en el dispositivo.'); }
   finally { button.disabled=false; button.textContent='Guardar captura'; }
+}
+async function uploadCaptureToCloud(item,previous=null){
+  await ensureProfile(authUser);
+  const updateExisting=Boolean(previous?.cloudSynced&&previous.cloudUserId===authUser.id);
+  const path=`${authUser.id}/${item.id}.jpg`;
+  const uploaded=await supabaseClient.storage.from('captures').upload(path,item.photo,{contentType:'image/jpeg',cacheControl:'31536000',upsert:updateExisting});
+  if(uploaded.error)throw uploaded.error;
+  const row={id:item.id,user_id:authUser.id,common_name:item.name,scientific_name:item.scientific,animal_group:item.kind,habitat:item.habitat,country:item.country,place:item.place,captured_on:item.capturedOn,notes:item.notes,image_path:path,image_width:item.photoWidth,image_height:item.photoHeight,identification_source:'manual',visibility:item.visibility||'private'};
+  const result=updateExisting
+    ? await supabaseClient.from('captures').update(row).eq('id',item.id).select('id').single()
+    : await supabaseClient.from('captures').insert(row).select('id').single();
+  if(result.error){if(!updateExisting)await supabaseClient.storage.from('captures').remove([path]);throw result.error;}
+  if(item.coordinates){
+    const location={capture_id:item.id,user_id:authUser.id,latitude:item.coordinates.latitude,longitude:item.coordinates.longitude};
+    const saved=await supabaseClient.from('capture_private_locations').upsert(location,{onConflict:'capture_id'});
+    if(saved.error)throw saved.error;
+  }
 }
 function showCaptureDetails(id) {
   const item=captures.find(x=>x.id===id); if(!item)return;
@@ -256,8 +440,19 @@ function showCaptureDetails(id) {
     <div class="detail-photo">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:'🐾'}</div>
     <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth} × ${item.photoHeight} px</strong></div></div>
-    ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.</p>
+    ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
     <div class="detail-actions"><button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
+  modal(detailModal,true);
+}
+function showCloudCaptureDetails(id) {
+  const item=cloudCaptures.find(capture=>capture.id===id);if(!item)return;
+  const src=imageURL(item),place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
+  document.querySelector('#species-detail-content').innerHTML=`
+    <div class="detail-photo">${src?`<img src="${esc(src)}" alt="${esc(item.name)}"/>`:'🐾'}</div>
+    <p class="eyebrow">CAPTURA COMPARTIDA · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>
+    <p class="capture-user"><span class="mini-avatar">${esc(item.initial)}</span>${esc(item.user)}</p>
+    <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth||'—'} × ${item.photoHeight||'—'} px</strong></div></div>
+    ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">La ubicación exacta no se comparte; solo el propietario puede verla.</p>`;
   modal(detailModal,true);
 }
 function showSpeciesDetails(name) {
@@ -287,6 +482,51 @@ function goToView(name) {
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
+async function toggleCloudLike(id) {
+  if(!authUser){modal(document.querySelector('#auth-modal'),true);setAuthMode('signin');setAuthMessage('Inicia sesión para dar me gusta.');return}
+  const item=cloudCaptures.find(capture=>capture.id===id);if(!item)return;
+  const button=document.querySelector(`[data-cloud-like="${CSS.escape(id)}"]`);if(button)button.disabled=true;
+  const result=item.liked
+    ? await supabaseClient.from('capture_likes').delete().eq('capture_id',id).eq('user_id',authUser.id)
+    : await supabaseClient.from('capture_likes').insert({capture_id:id,user_id:authUser.id});
+  if(result.error){notify('No se pudo actualizar el me gusta.');if(button)button.disabled=false;return}
+  await loadCloudCaptures();renderAll();
+}
+async function toggleFollowUser(id) {
+  if(!authUser){modal(document.querySelector('#auth-modal'),true);setAuthMode('signin');setAuthMessage('Inicia sesión para seguir a otros exploradores.');return}
+  const item=cloudCaptures.find(capture=>capture.userId===id);if(!item)return;
+  const following=item.following;
+  const result=following
+    ? await supabaseClient.from('follows').delete().eq('follower_id',authUser.id).eq('followed_id',id)
+    : await supabaseClient.from('follows').insert({follower_id:authUser.id,followed_id:id});
+  if(result.error){notify('No se pudo actualizar el seguimiento.');return}
+  await loadCloudCaptures();await refreshSocialCounts();renderAll();
+}
+let activeCommentsCapture=null;
+async function openComments(id) {
+  if(!authUser){modal(document.querySelector('#auth-modal'),true);setAuthMode('signin');setAuthMessage('Inicia sesión para participar en los comentarios.');return}
+  activeCommentsCapture=id;document.querySelector('#comment-body').value='';modal(document.querySelector('#comments-modal'),true);
+  await loadComments();
+}
+async function loadComments() {
+  const list=document.querySelector('#comments-list');list.innerHTML='<div class="empty-state">Cargando comentarios…</div>';
+  const {data,error}=await supabaseClient.from('capture_comments').select('id,user_id,body,created_at').eq('capture_id',activeCommentsCapture).order('created_at',{ascending:true}).limit(100);
+  if(error){list.innerHTML='<div class="empty-state">No se pudieron cargar los comentarios.</div>';return}
+  if(!data.length){list.innerHTML='<div class="empty-state">Sé la primera persona en comentar.</div>';return}
+  const {data:profiles}=await supabaseClient.from('profiles').select('id,display_name,username').in('id',[...new Set(data.map(row=>row.user_id))]);
+  const names=new Map((profiles||[]).map(profile=>[profile.id,profile.display_name||profile.username||'Explorador']));
+  list.innerHTML=data.map(comment=>`<article class="comment-row"><div class="comment-top"><strong>${esc(names.get(comment.user_id)||'Explorador')}</strong><time>${esc(new Intl.DateTimeFormat('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(comment.created_at)))}</time>${comment.user_id===authUser.id?`<button type="button" data-delete-comment="${esc(comment.id)}" aria-label="Eliminar comentario">Eliminar</button>`:''}</div><p>${esc(comment.body)}</p></article>`).join('');
+}
+async function submitComment(event) {
+  event.preventDefault();if(!authUser||!activeCommentsCapture)return;
+  const body=String(new FormData(event.currentTarget).get('body')||'').trim();if(!body)return;
+  const button=event.currentTarget.querySelector('button[type="submit"]');button.disabled=true;
+  const {error}=await supabaseClient.from('capture_comments').insert({capture_id:activeCommentsCapture,user_id:authUser.id,body});
+  button.disabled=false;
+  if(error){notify('No se pudo publicar el comentario.');return}
+  event.currentTarget.reset();await loadComments();await loadCloudCaptures();renderAll();
+}
+
 document.querySelector('#today-label').textContent=new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toLocaleUpperCase('es');
 document.querySelector('#search-input').addEventListener('input',renderSpecies);
 document.querySelector('#explore-search').addEventListener('input',renderExplore);
@@ -300,6 +540,11 @@ document.querySelector('#choose-photo').addEventListener('click',()=>pickPhoto(f
 document.querySelector('#back-to-choice').addEventListener('click',()=>{choicePanel.classList.remove('hidden');editorPanel.classList.add('hidden');resetEditor()});
 document.querySelector('#use-location').addEventListener('click',useLocation);
 form.addEventListener('submit',saveCapture);
+document.querySelector('#account-open').addEventListener('click',()=>{setAuthMode('signin');modal(document.querySelector('#auth-modal'),true)});
+document.querySelector('#account-signout').addEventListener('click',signOut);
+document.querySelector('#auth-form').addEventListener('submit',submitAuth);
+document.querySelector('#comment-form').addEventListener('submit',submitComment);
+document.querySelectorAll('[data-auth-mode]').forEach(button=>button.addEventListener('click',()=>setAuthMode(button.dataset.authMode)));
 photoInput.addEventListener('change',async event=>{
   const file=event.target.files?.[0]; if(!file)return;
   try{showEditor(await compressPhoto(file))}catch{notify('No se pudo procesar esa foto. Prueba con otra imagen.')}
@@ -308,20 +553,33 @@ photoInput.addEventListener('change',async event=>{
 document.addEventListener('click',async event=>{
   const view=event.target.closest('[data-view]'); if(view){goToView(view.dataset.view);return}
   if(event.target.closest('[data-action="camera"]')){showChoice();return}
-  if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else{modal(captureModal,false);resetEditor()}return}
+  if(event.target.closest('.modal-close')){if(detailModal.classList.contains('open'))modal(detailModal,false);else if(document.querySelector('#auth-modal').classList.contains('open'))modal(document.querySelector('#auth-modal'),false);else if(document.querySelector('#comments-modal').classList.contains('open'))modal(document.querySelector('#comments-modal'),false);else{modal(captureModal,false);resetEditor()}return}
   if(event.target===captureModal){modal(captureModal,false);resetEditor();return}
+  if(event.target===document.querySelector('#auth-modal')){modal(document.querySelector('#auth-modal'),false);return}
+  if(event.target===document.querySelector('#comments-modal')){modal(document.querySelector('#comments-modal'),false);return}
   if(event.target===detailModal){modal(detailModal,false);return}
   const edit=event.target.closest('[data-edit-capture]');
   if(edit){const item=captures.find(x=>x.id===edit.dataset.editCapture);if(!item)return;modal(detailModal,false);showEditor({blob:item.photo,width:item.photoWidth,height:item.photoHeight},item);return}
   const open=event.target.closest('[data-open-capture]');
   if(open){modal(detailModal,false);showCaptureDetails(open.dataset.openCapture);return}
+  const cloudOpen=event.target.closest('[data-cloud-capture]');
+  if(cloudOpen){showCloudCaptureDetails(cloudOpen.dataset.cloudCapture);return}
   const remove=event.target.closest('[data-delete-capture]');
-  if(remove){if(!confirm('¿Eliminar esta captura de este dispositivo? No se puede deshacer.'))return;try{await deleteCapture(remove.dataset.deleteCapture);modal(detailModal,false);await refresh();notify('Captura eliminada.')}catch{notify('No se pudo eliminar la captura.')}return}
+  if(remove){if(!confirm('¿Eliminar esta captura de este dispositivo y de tu cuenta? No se puede deshacer.'))return;try{const item=captures.find(x=>x.id===remove.dataset.deleteCapture);if(item?.cloudSynced&&authUser?.id===item.cloudUserId){const result=await supabaseClient.from('captures').delete().eq('id',item.id);if(result.error)throw result.error;await supabaseClient.storage.from('captures').remove([`${authUser.id}/${item.id}.jpg`]);}await deleteCapture(remove.dataset.deleteCapture);modal(detailModal,false);await refresh();await loadCloudCaptures();renderAll();notify('Captura eliminada.')}catch{notify('No se pudo eliminar la captura.')}return}
   const species=event.target.closest('[data-species]');
   if(species){showSpeciesDetails(species.dataset.species);return}
   const like=event.target.closest('[data-like]');
-  if(like){const item=demoObservations.find(x=>x.id===Number(like.dataset.like));if(item){item.liked=!item.liked;item.likes+=item.liked?1:-1;renderExplore()}}
+  if(like){const item=demoObservations.find(x=>x.id===Number(like.dataset.like));if(item){item.liked=!item.liked;item.likes+=item.liked?1:-1;renderAll()}}
+  const cloudLike=event.target.closest('[data-cloud-like]');
+  if(cloudLike){await toggleCloudLike(cloudLike.dataset.cloudLike)}
+  const follow=event.target.closest('[data-follow-user]');
+  if(follow){await toggleFollowUser(follow.dataset.followUser);return}
+  const comments=event.target.closest('[data-open-comments]');
+  if(comments){await openComments(comments.dataset.openComments);return}
+  const removeComment=event.target.closest('[data-delete-comment]');
+  if(removeComment){if(!confirm('¿Eliminar este comentario?'))return;const {error}=await supabaseClient.from('capture_comments').delete().eq('id',removeComment.dataset.deleteComment).eq('user_id',authUser.id);if(error){notify('No se pudo eliminar el comentario.');return}await loadComments();await loadCloudCaptures();renderAll();}
 });
 
 refresh().catch(()=>{renderAll();notify('Abre FotoDex desde su dirección web segura para guardar capturas.')});
+setAuthMode('signin');initCloud();
 if('serviceWorker' in navigator && location.protocol.startsWith('http')) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
