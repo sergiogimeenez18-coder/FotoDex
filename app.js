@@ -430,12 +430,23 @@ function setAuthMessage(message, error=false) {
 function setAuthMode(mode) {
   authMode=mode;
   const signup=mode==='signup';
-  document.querySelector('#auth-title').textContent=signup?'Crea tu cuenta':'Inicia sesión';
-  document.querySelector('#auth-description').textContent=signup?'Guarda tus capturas en la nube y comparte las que quieras.':'Accede a tus capturas desde tus dispositivos.';
-  document.querySelector('#auth-submit').textContent=signup?'Crear cuenta':'Entrar';
+  const recoveryRequest=mode==='recovery-request',recoveryUpdate=mode==='recovery-update',recovery=recoveryRequest||recoveryUpdate;
+  document.querySelector('#auth-title').textContent=signup?'Crea tu cuenta':recoveryRequest?'Restablece tu contraseña':recoveryUpdate?'Elige una nueva contraseña':'Inicia sesión';
+  document.querySelector('#auth-description').textContent=signup?'Guarda tus capturas en la nube y comparte las que quieras.':recoveryRequest?'Te enviaremos un enlace para restablecerla.':recoveryUpdate?'Tu nueva contraseña debe tener al menos 8 caracteres.':'Accede a tus capturas desde tus dispositivos.';
+  document.querySelector('#auth-submit').textContent=signup?'Crear cuenta':recoveryRequest?'Enviar enlace':recoveryUpdate?'Guardar contraseña':'Entrar';
+  document.querySelector('#auth-tabs').classList.toggle('hidden',recovery);
+  document.querySelector('#auth-forgot-password').classList.toggle('hidden',mode!=='signin');
   document.querySelector('#auth-username-wrap').classList.toggle('hidden',!signup);
   document.querySelector('#auth-display-wrap').classList.toggle('hidden',!signup);
   document.querySelector('#auth-form').elements.username.required=signup;
+  document.querySelector('#auth-email-wrap').classList.toggle('hidden',recoveryUpdate);
+  document.querySelector('#auth-form').elements.email.required=!recoveryUpdate;
+  document.querySelector('#auth-password-wrap').classList.toggle('hidden',recoveryRequest||recoveryUpdate);
+  document.querySelector('#auth-form').elements.password.required=!recovery;
+  document.querySelector('#auth-new-password-wrap').classList.toggle('hidden',!recoveryUpdate);
+  document.querySelector('#auth-form').elements.new_password.required=recoveryUpdate;
+  document.querySelector('#auth-form').elements.password.value='';
+  document.querySelector('#auth-form').elements.new_password.value='';
   document.querySelectorAll('[data-auth-mode]').forEach(button=>button.classList.toggle('selected',button.dataset.authMode===mode));
   setAuthMessage('');
 }
@@ -589,7 +600,13 @@ async function initCloud() {
   try {
     const {createClient}=await import('https://esm.sh/@supabase/supabase-js@2.95.0');
     supabaseClient=createClient(config.url,config.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-    supabaseClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>handleAuthSession(session),0));
+    supabaseClient.auth.onAuthStateChange((event,session)=>setTimeout(()=>{
+      if(event==='PASSWORD_RECOVERY'){
+        setAuthMode('recovery-update');modal(document.querySelector('#auth-modal'),true);
+        setAuthMessage('Enlace verificado. Escribe tu nueva contraseña.');
+      }
+      void handleAuthSession(session);
+    },0));
     const {data,error}=await supabaseClient.auth.getSession();
     if(error)throw error;
     if(data.session)await handleAuthSession(data.session);else updateAccountUI();
@@ -606,7 +623,18 @@ async function submitAuth(event) {
   const data=new FormData(event.currentTarget),email=String(data.get('email')).trim(),password=String(data.get('password'));
   const button=document.querySelector('#auth-submit');button.disabled=true;button.textContent='Conectando…';setAuthMessage('');
   try {
-    if(authMode==='signup'){
+    if(authMode==='recovery-request'){
+      const redirectTo=window.location.origin+window.location.pathname;
+      const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo});
+      if(error)throw error;
+      setAuthMessage('Si existe una cuenta con ese correo, recibirás un enlace para cambiar la contraseña.');
+    } else if(authMode==='recovery-update'){
+      const newPassword=String(data.get('new_password')||'');
+      if(newPassword.length<8){setAuthMessage('La nueva contraseña debe tener al menos 8 caracteres.',true);return}
+      const {error}=await supabaseClient.auth.updateUser({password:newPassword});
+      if(error)throw error;
+      event.currentTarget.reset();setAuthMode('signin');modal(document.querySelector('#auth-modal'),false);notify('Contraseña actualizada correctamente.');
+    } else if(authMode==='signup'){
       const username=String(data.get('username')).trim().toLowerCase();
       const {data:result,error}=await supabaseClient.auth.signUp({email,password,options:{data:{username,display_name:String(data.get('display_name')).trim()||'Explorador FotoDex'},emailRedirectTo:window.location.href}});
       if(error)throw error;
@@ -618,7 +646,7 @@ async function submitAuth(event) {
       await handleAuthSession(result.session);modal(document.querySelector('#auth-modal'),false);event.currentTarget.reset();
     }
   } catch(error) {setAuthMessage(authErrorMessage(error),true)}
-  finally {button.disabled=false;button.textContent=authMode==='signup'?'Crear cuenta':'Entrar'}
+  finally {button.disabled=false;button.textContent=authMode==='signup'?'Crear cuenta':authMode==='recovery-request'?'Enviar enlace':authMode==='recovery-update'?'Guardar contraseña':'Entrar'}
 }
 function updateBioCounter(){const bio=document.querySelector('#profile-form').elements.bio.value;document.querySelector('#bio-counter').textContent=`${bio.length} / 240`}
 async function submitProfile(event){
@@ -1006,6 +1034,7 @@ document.querySelector('#backup-import').addEventListener('click',()=>document.q
 document.querySelector('#backup-file').addEventListener('change',async event=>{const file=event.target.files?.[0];await importBackupFile(file);event.target.value=''});
 document.querySelector('#account-signout').addEventListener('click',signOut);
 document.querySelector('#auth-form').addEventListener('submit',submitAuth);
+document.querySelector('#auth-forgot-password').addEventListener('click',()=>setAuthMode('recovery-request'));
 document.querySelector('#comment-form').addEventListener('submit',submitComment);
 document.querySelector('#notification-open').addEventListener('click',openNotifications);
 document.querySelectorAll('[data-auth-mode]').forEach(button=>button.addEventListener('click',()=>setAuthMode(button.dataset.authMode)));
