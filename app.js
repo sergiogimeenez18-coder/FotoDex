@@ -161,6 +161,17 @@ function notify(message) {
   clearTimeout(notify.timer); notify.timer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 function modal(el, open) { el.classList.toggle('open', open); el.setAttribute('aria-hidden', String(!open)); }
+let lightboxReturnFocus=null;
+function openPhotoLightbox(src,name){
+  if(!src)return;
+  const viewer=document.querySelector('#photo-lightbox'),image=document.querySelector('#photo-lightbox-image');
+  lightboxReturnFocus=document.activeElement;image.src=src;image.alt=`Fotografía ampliada de ${name||'la captura'}`;modal(viewer,true);document.querySelector('#photo-lightbox-close').focus();
+}
+function closePhotoLightbox(){
+  const viewer=document.querySelector('#photo-lightbox');if(!viewer.classList.contains('open'))return;
+  modal(viewer,false);document.querySelector('#photo-lightbox-image').removeAttribute('src');
+  if(lightboxReturnFocus?.isConnected)lightboxReturnFocus.focus();lightboxReturnFocus=null;
+}
 function setupAppInstall(){
   const button=document.querySelector('#install-app'),standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
   if(standalone)return;
@@ -844,11 +855,16 @@ async function syncLocalCaptures(){
   }catch(error){console.warn('FotoDex local migration:',error);notify('No se pudo completar la subida. Tus capturas originales siguen guardadas en este dispositivo.')}
   finally{button.disabled=false;updateLocalSyncButton()}
 }
+function detailPhotoMarkup(src,name){
+  if(!src)return '🐾';
+  const label=esc(name);
+  return `<button type="button" class="detail-photo-zoom" data-open-photo="${esc(src)}" data-photo-name="${label}" aria-label="Ampliar foto de ${label}"><img src="${esc(src)}" alt="${label}"/></button>`;
+}
 function showCaptureDetails(id) {
   const item=captures.find(x=>x.id===id); if(!item)return;
   const src=imageURL(item), place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
   document.querySelector('#species-detail-content').innerHTML=`
-    <div class="detail-photo">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:'🐾'}</div>
+    <div class="detail-photo">${detailPhotoMarkup(src,item.name)}</div>
     <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(scientificFor(item)||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth} × ${item.photoHeight} px</strong></div></div>
     ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSyncPending?'Hay cambios pendientes de sincronizar; la copia de tu cuenta podría estar desactualizada.':item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
@@ -859,7 +875,7 @@ function showCloudCaptureDetails(id,profileCapture=null) {
   const item=profileCapture||[...cloudCaptures,...profileCloudCaptures].find(capture=>capture.id===id);if(!item)return;
   const src=imageURL(item),place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
   document.querySelector('#species-detail-content').innerHTML=`
-    <div class="detail-photo">${src?`<img src="${esc(src)}" alt="${esc(item.name)}"/>`:'🐾'}</div>
+    <div class="detail-photo">${detailPhotoMarkup(src,item.name)}</div>
     <p class="eyebrow">CAPTURA COMPARTIDA · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <p class="capture-user"><span class="mini-avatar">${esc(item.initial)}</span>${esc(item.user)}</p>
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth||'—'} × ${item.photoHeight||'—'} px</strong></div></div>
@@ -871,7 +887,7 @@ function showSpeciesDetails(name) {
   taxonomyLookupRun++;activeTaxonomyName=name;activeTaxonomyCandidates=[];
   const src=item.capture?imageURL(item.capture):'';
   document.querySelector('#species-detail-content').innerHTML=`
-    <div class="detail-photo" style="background:${item.palette}">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:item.emoji}</div>
+    <div class="detail-photo" style="background:${item.palette}">${src?detailPhotoMarkup(src,item.name):item.emoji}</div>
     <p class="eyebrow">FICHA DE ESPECIE · ${item.seen?'YA CAPTURADA':'POR DESCUBRIR'}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(scientificFor(item)||'Nombre científico pendiente')}</p>${taxonomyDetailsMarkup(item)}<p class="species-description">${esc(item.description)}</p>
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.capture?.habitat||item.habitat||'Pendiente')}</strong></div><div><small>ESTADO</small><strong>${item.seen?'Capturada':'Aún no capturada'}</strong></div><div><small>UBICACIÓN</small><strong>${esc(item.capture?.place||item.capture?.country||'Pendiente')}</strong></div></div>
     <div class="taxonomy-lookup"><button type="button" class="identify-button" data-lookup-taxonomy="${esc(item.name)}">${scientificFor(item)?'Consultar otra coincidencia':'Buscar nombre científico en GBIF'}</button><div id="taxonomy-lookup-results" aria-live="polite"></div></div>
@@ -1044,6 +1060,10 @@ photoInput.addEventListener('change',async event=>{
   finally{event.target.value=''}
 });
 document.addEventListener('click',async event=>{
+  const photoOpen=event.target.closest('[data-open-photo]');
+  if(photoOpen){openPhotoLightbox(photoOpen.dataset.openPhoto,photoOpen.dataset.photoName);return}
+  const photoViewer=document.querySelector('#photo-lightbox');
+  if(event.target.closest('#photo-lightbox-close')||event.target===photoViewer){closePhotoLightbox();return}
   if(event.target.closest('[data-close-species-add]')){modal(document.querySelector('#species-add-modal'),false);return}
   if(event.target.closest('.modal-close')&&document.querySelector('#species-add-modal').classList.contains('open')){modal(document.querySelector('#species-add-modal'),false);return}
   if(event.target===document.querySelector('#species-add-modal')){modal(document.querySelector('#species-add-modal'),false);return}
@@ -1088,6 +1108,7 @@ document.addEventListener('click',async event=>{
   const removeComment=event.target.closest('[data-delete-comment]');
   if(removeComment){if(!confirm('¿Eliminar este comentario?'))return;const {error}=await supabaseClient.from('capture_comments').delete().eq('id',removeComment.dataset.deleteComment).eq('user_id',authUser.id);if(error){notify('No se pudo eliminar el comentario.');return}await loadComments();await loadCloudCaptures();renderAll();}
 });
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closePhotoLightbox()});
 
 refresh().catch(()=>{renderAll();notify('Abre FotoDex desde su dirección web segura para guardar capturas.')});
 window.addEventListener('online',async()=>{try{const synced=await syncPendingCaptures();if(synced){await loadCloudCaptures();renderAll();notify(`${synced} captura${synced===1?'':'s'} pendiente${synced===1?'':'s'} sincronizada${synced===1?'':'s'}.`)}}catch(error){console.warn('FotoDex online sync:',error)}});
