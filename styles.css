@@ -67,7 +67,7 @@
 .save-capture:disabled{opacity:.65;cursor:wait}
 .species-detail-card{max-height:min(90dvh,850px);overflow:auto;overscroll-behavior:contain}
 .detail-photo{height:220px;border-radius:17px;display:grid;place-items:center;overflow:hidden;background:#e8eee4;font-size:68px;margin:8px 0 19px}
-.detail-photo img{width:100%;height:100%;object-fit:cover}
+.detail-photo img{width:100%;height:100%;object-fit:contain;background:#1e2a22}
 .species-detail-card h2{margin:0 0 4px}.detail-scientific{font:italic 14px Georgia,serif;color:#738075;margin:0 0 15px}
 .species-description,.detail-notes{font-size:12px;line-height:1.7;color:#657468}
 .identification-note{margin:0 0 14px;padding:10px 12px;border-radius:11px;background:#eef3e9;color:#526b53;font-size:10px;line-height:1.55}.identification-note strong{font-size:10px}.identification-note span{color:#718070}
