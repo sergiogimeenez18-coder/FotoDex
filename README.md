@@ -17,6 +17,7 @@ FotoDex es una aplicación web móvil instalable (PWA) para registrar observacio
 - Buscar exploradores por nombre visible o nombre de usuario y seguir/dejar de seguir desde los resultados.
 - Pedir hasta tres sugerencias de identificación animal a partir de una copia reducida de la foto; la persona elige cuál aplicar y revisa los datos antes de guardar.
 - Descargar y restaurar copias JSON de las capturas guardadas en el dispositivo; las ubicaciones precisas se excluyen a menos que se elija incluirlas.
+- Migrar voluntariamente las capturas locales antiguas a la cuenta; durante la migración se guardan como privadas.
 - Instalar la aplicación y abrir su interfaz básica sin conexión después de cargarla.
 - Instalar FotoDex desde el navegador compatible o consultar los pasos para añadirla a la pantalla de inicio en Safari.
 

@@ -293,7 +293,7 @@ function renderAll() {
   const ownSpecies = entries().filter(item=>item.seen).slice(0,4);
   document.querySelector('#profile-grid').innerHTML = ownSpecies.length ? ownSpecies.map(speciesCard).join('') : '<div class="empty-state"><strong>Tu actividad aparecerá aquí</strong>Guarda tu primera captura para empezar.</div>';
 }
-async function refresh() { captures = await readCaptures(); renderAll(); }
+async function refresh() { captures = await readCaptures(); updateLocalSyncButton(); renderAll(); }
 async function exportBackup(){
   const button=document.querySelector('#backup-export');button.disabled=true;button.textContent='Preparando…';
   try{
@@ -464,9 +464,16 @@ function updateAccountUI(profile=null) {
   document.querySelector('#account-open').classList.toggle('hidden',signedIn);
   document.querySelector('#profile-edit').classList.toggle('hidden',!signedIn);
   document.querySelector('#account-signout').classList.toggle('hidden',!signedIn);
+  updateLocalSyncButton();
   if(profile){document.querySelector('#profile-form').elements.display_name.value=profile.display_name||'';document.querySelector('#profile-form').elements.bio.value=profile.bio||'';updateBioCounter()}
   if(!signedIn){document.querySelector('#profile-follower-count').textContent='—';document.querySelector('#profile-following-count').textContent='—';}
   updateLocationUI();
+}
+function updateLocalSyncButton(){
+  const panel=document.querySelector('#local-sync-panel'),button=document.querySelector('#sync-local-captures');if(!panel||!button)return;
+  const count=captures.filter(item=>!item.cloudSynced&&!item.cloudSyncPending&&!item.cloudUserId).length;
+  panel.classList.toggle('hidden',!authUser||!count);
+  button.textContent=`Sincronizar ${count} captura${count===1?'':'s'} antiguas`;
 }
 async function handleAuthSession(session) {
   const nextUser=session?.user||null;
@@ -692,6 +699,26 @@ async function retryCaptureSync(id){
   try{await uploadCaptureToCloud(item,item);item.cloudSynced=true;item.cloudSyncPending=false;item.cloudUserId=authUser.id;await writeCapture(item);await loadCloudCaptures();renderAll();showCaptureDetails(id);notify('Captura sincronizada con tu cuenta.')}
   catch(error){console.warn('FotoDex capture retry:',error);notify('Sigue sin poder sincronizarse. Revisa la conexión e inténtalo de nuevo.')}
 }
+async function syncLocalCaptures(){
+  if(!authUser||!supabaseClient)return;
+  if(!navigator.onLine){notify('Conéctate a internet para subir tus capturas.');return}
+  const ownerId=authUser.id,local=captures.filter(item=>!item.cloudSynced&&!item.cloudSyncPending&&!item.cloudUserId);
+  if(!local.length){updateLocalSyncButton();return}
+  if(!confirm(`Vas a subir ${local.length} captura${local.length===1?'':'s'} a tu cuenta. Se guardarán como privadas y la ubicación precisa solo será visible para ti. ¿Continuar?`))return;
+  const button=document.querySelector('#sync-local-captures');button.disabled=true;let synced=0;
+  try{
+    for(let index=0;index<local.length;index++){
+      if(authUser?.id!==ownerId)break;
+      const item=local[index];item.visibility='private';item.cloudUserId=ownerId;button.textContent=`Subiendo ${index+1} de ${local.length}…`;
+      try{await uploadCaptureToCloud(item,item);item.cloudSynced=true;item.cloudSyncPending=false;await writeCapture(item);synced++}
+      catch(error){console.warn('FotoDex local migration:',error);item.cloudSynced=false;item.cloudSyncPending=true;await writeCapture(item)}
+    }
+    captures=await readCaptures();renderAll();
+    try{await loadCloudCaptures();renderAll()}catch(error){console.warn('FotoDex migrated captures refresh:',error)}
+    notify(synced===local.length?`${synced} captura${synced===1?'':'s'} añadida${synced===1?'':'s'} a tu cuenta como privada.`:`Se subieron ${synced} de ${local.length}. El resto se reintentará cuando vuelva la conexión.`);
+  }catch(error){console.warn('FotoDex local migration:',error);notify('No se pudo completar la subida. Tus capturas originales siguen guardadas en este dispositivo.')}
+  finally{button.disabled=false;updateLocalSyncButton()}
+}
 function showCaptureDetails(id) {
   const item=captures.find(x=>x.id===id); if(!item)return;
   const src=imageURL(item), place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
@@ -829,6 +856,7 @@ document.querySelector('#profile-edit').addEventListener('click',()=>{if(!active
 document.querySelector('#profile-form').addEventListener('submit',submitProfile);
 document.querySelector('#profile-form').elements.bio.addEventListener('input',updateBioCounter);
 document.querySelector('#backup-export').addEventListener('click',exportBackup);
+document.querySelector('#sync-local-captures').addEventListener('click',syncLocalCaptures);
 document.querySelector('#backup-import').addEventListener('click',()=>document.querySelector('#backup-file').click());
 document.querySelector('#backup-file').addEventListener('change',async event=>{const file=event.target.files?.[0];await importBackupFile(file);event.target.value=''});
 document.querySelector('#account-signout').addEventListener('click',signOut);
