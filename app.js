@@ -118,6 +118,36 @@ async function deleteCapture(id) {
     transaction.onerror = () => reject(transaction.error);
   });
 }
+function formatStorageSize(bytes){
+  if(!Number.isFinite(bytes)||bytes<0)return '—';
+  const units=['B','KB','MB','GB'];let size=bytes,unit=0;
+  while(size>=1024&&unit<units.length-1){size/=1024;unit++}
+  return `${size.toLocaleString('es-ES',{maximumFractionDigits:unit?1:0})} ${units[unit]}`;
+}
+async function updateStorageStatus(){
+  const status=document.querySelector('#storage-status'),note=document.querySelector('#storage-note'),button=document.querySelector('#storage-persist');
+  if(!status||!note||!button)return;
+  const storage=navigator.storage;
+  if(!storage?.estimate){status.textContent='Este navegador no informa del espacio utilizado.';button.classList.add('hidden');return}
+  try{
+    const estimate=await storage.estimate(),usage=Number(estimate.usage),quota=Number(estimate.quota);
+    status.textContent=Number.isFinite(usage)&&Number.isFinite(quota)?`FotoDex utiliza aproximadamente ${formatStorageSize(usage)} de ${formatStorageSize(quota)} disponibles para este sitio.`:'No se pudo calcular el espacio disponible.';
+    const persisted=typeof storage.persisted==='function'?await storage.persisted():false;
+    if(persisted){button.textContent='Almacenamiento protegido';button.disabled=true;note.textContent='El navegador conservará estos datos frente a limpiezas automáticas. Una copia de seguridad sigue siendo recomendable.'}
+    else if(typeof storage.persist==='function'){button.classList.remove('hidden');button.disabled=false;button.textContent='Pedir al navegador que conserve los datos';note.textContent='El navegador puede aceptar o rechazar la solicitud. Descarga copias de seguridad para conservar tus capturas.'}
+    else{button.classList.add('hidden');note.textContent='Este navegador no permite solicitar protección del almacenamiento. Descarga copias de seguridad para conservar tus capturas.'}
+  }catch(error){console.warn('FotoDex storage estimate:',error);status.textContent='No se pudo consultar el espacio del navegador.';button.classList.add('hidden');note.textContent='Descarga copias de seguridad para conservar tus capturas.'}
+}
+async function requestStoragePersistence(){
+  const button=document.querySelector('#storage-persist'),note=document.querySelector('#storage-note');
+  if(typeof navigator.storage?.persist!=='function'){note.textContent='Este navegador no permite solicitar protección del almacenamiento.';button.classList.add('hidden');return}
+  button.disabled=true;button.textContent='Consultando al navegador…';
+  try{
+    const granted=await navigator.storage.persist();
+    if(granted){notify('El navegador aceptó conservar los datos de FotoDex.');await updateStorageStatus()}
+    else{button.disabled=false;button.textContent='Pedir al navegador que conserve los datos';note.textContent='El navegador no ha aceptado la solicitud. Descarga copias de seguridad para conservar tus capturas.'}
+  }catch(error){console.warn('FotoDex persistent storage:',error);button.disabled=false;button.textContent='Pedir al navegador que conserve los datos';note.textContent='No se pudo solicitar protección. Descarga copias de seguridad para conservar tus capturas.'}
+}
 function imageURL(item) {
   if (item?.imageUrl) return item.imageUrl;
   if (!item?.photo) return '';
@@ -884,6 +914,7 @@ function updateLocationUI(){
 function goToView(name) {
   document.querySelectorAll('.view').forEach(view=>view.classList.toggle('active',view.id===name+'-view'));
   document.querySelectorAll('.nav-item').forEach(button=>button.classList.toggle('active',button.dataset.view===name));
+  if(name==='profile')void updateStorageStatus();
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -969,6 +1000,7 @@ document.querySelector('#profile-edit').addEventListener('click',()=>{if(!active
 document.querySelector('#profile-form').addEventListener('submit',submitProfile);
 document.querySelector('#profile-form').elements.bio.addEventListener('input',updateBioCounter);
 document.querySelector('#backup-export').addEventListener('click',exportBackup);
+document.querySelector('#storage-persist').addEventListener('click',requestStoragePersistence);
 document.querySelector('#sync-local-captures').addEventListener('click',syncLocalCaptures);
 document.querySelector('#backup-import').addEventListener('click',()=>document.querySelector('#backup-file').click());
 document.querySelector('#backup-file').addEventListener('change',async event=>{const file=event.target.files?.[0];await importBackupFile(file);event.target.value=''});
