@@ -25,6 +25,7 @@ const starterCatalog = [
 const targetKinds={aves:{emoji:'🐦',palette:'linear-gradient(145deg,#dce9d7,#799477)'},mamiferos:{emoji:'🐾',palette:'linear-gradient(145deg,#e6d8c1,#a78f73)'},reptiles:{emoji:'🦎',palette:'linear-gradient(145deg,#d9e2bf,#819572)'},anfibios:{emoji:'🐸',palette:'linear-gradient(145deg,#d9e8d1,#839c76)'},insectos:{emoji:'🦋',palette:'linear-gradient(145deg,#efe5bd,#a2ad70)'},peces:{emoji:'🐟',palette:'linear-gradient(145deg,#dce8ed,#789aa2)'},otros:{emoji:'🌊',palette:'linear-gradient(145deg,#dce8ed,#789aa2)'}};
 const starterByName=new Map(starterCatalog.map(item=>[item.name.toLocaleLowerCase('es'),item]));
 let customSpecies=[];
+let editingCustomSpeciesName='';
 try{const saved=JSON.parse(localStorage.getItem('fotodex-custom-species-v1')||'[]');if(Array.isArray(saved))customSpecies=saved.filter(item=>item&&typeof item.name==='string'&&typeof item.kind==='string').slice(0,500)}catch{}
 const baseCatalog=Array.isArray(window.FOTODEX_SPECIES_TARGETS)&&window.FOTODEX_SPECIES_TARGETS.length
   ? window.FOTODEX_SPECIES_TARGETS.map((item,index)=>{const known=starterByName.get(item.name.toLocaleLowerCase('es'));return {name:item.name,scientific:known?.scientific||'',emoji:known?.emoji||targetKinds[item.kind]?.emoji||'🐾',kind:item.kind,habitat:known?.habitat||'',description:known?.description||'Especie incluida en la lista principal de FotoDex. Los datos científicos y de hábitat se completarán con fuentes fiables.',palette:known?.palette||targetKinds[item.kind]?.palette||['linear-gradient(145deg,#dce9d7,#799477)','linear-gradient(145deg,#efe5bd,#a2ad70)','linear-gradient(145deg,#d9e2bf,#819572)','linear-gradient(145deg,#e6d8c1,#a78f73)'][index%4]}})
@@ -364,18 +365,37 @@ function renderAll() {
   document.querySelector('#profile-grid').innerHTML = ownSpecies.length ? ownSpecies.map(speciesCard).join('') : '<div class="empty-state"><strong>Tu actividad aparecerá aquí</strong>Guarda tu primera captura para empezar.</div>';
 }
 async function refresh() { captures = await readCaptures(); updateLocalSyncButton(); renderAll(); }
-function openAddSpecies(){document.querySelector('#species-add-form').reset();modal(document.querySelector('#species-add-modal'),true)}
+function setSpeciesFormMode(mode='add'){
+  const editing=mode==='edit';
+  document.querySelector('#species-add-eyebrow').textContent=editing?'GESTIONA TU LISTA':'AMPLÍA TU LISTA';
+  document.querySelector('#species-add-title').textContent=editing?'Editar especie':'Añadir especie';
+  document.querySelector('#species-add-description').textContent=editing?'Corrige el nombre, grupo, nombre científico o hábitat.':'Se guarda en este navegador y se incluye en las copias de seguridad.';
+  document.querySelector('#species-add-submit').textContent=editing?'Guardar cambios':'Añadir a la colección';
+}
+function openAddSpecies(){editingCustomSpeciesName='';document.querySelector('#species-add-form').reset();setSpeciesFormMode('add');modal(document.querySelector('#species-add-modal'),true)}
+function openEditCustomSpecies(name){
+  const item=customSpecies.find(row=>taxonKey(row.name)===taxonKey(name));if(!item)return;
+  const form=document.querySelector('#species-add-form');editingCustomSpeciesName=item.name;
+  form.reset();form.elements.name.value=item.name;form.elements.kind.value=item.kind;form.elements.scientific.value=item.scientific||'';form.elements.habitat.value=item.habitat||'';
+  setSpeciesFormMode('edit');modal(document.querySelector('#species-add-modal'),true);
+}
 function submitCustomSpecies(event){
   event.preventDefault();const form=event.currentTarget;if(!form.reportValidity())return;
-  if(customSpecies.length>=500){notify('Has alcanzado el límite de 500 especies personalizadas en este navegador.');return}
+  const editing=Boolean(editingCustomSpeciesName),oldName=editingCustomSpeciesName,oldKey=taxonKey(oldName);
+  if(editing&&[...captures,...cloudCaptures.filter(item=>item.userId===authUser?.id)].some(item=>taxonKey(item.name)===oldKey)){notify('Elimina primero las capturas de esta especie antes de editar su ficha.');return}
+  if(!editing&&customSpecies.length>=500){notify('Has alcanzado el límite de 500 especies personalizadas en este navegador.');return}
   const data=new FormData(form),name=String(data.get('name')||'').trim(),key=taxonKey(name),kind=String(data.get('kind')||'');
-  if(catalog.some(item=>taxonKey(item.name)===key)||captures.some(item=>taxonKey(item.name)===key)){notify('Esta especie ya está en tu lista o en tus capturas.');return}
+  if(catalog.some(item=>taxonKey(item.name)===key&&(!editing||taxonKey(item.name)!==oldKey))||captures.some(item=>taxonKey(item.name)===key&&key!==oldKey)){notify('Esta especie ya está en tu lista o en tus capturas.');return}
   const item={name,kind,scientific:String(data.get('scientific')||'').trim(),habitat:String(data.get('habitat')||'').trim()};
-  const next=[...customSpecies,item];
+  const next=editing?customSpecies.map(row=>taxonKey(row.name)===oldKey?item:row):[...customSpecies,item];
   try{localStorage.setItem('fotodex-custom-species-v1',JSON.stringify(next))}catch{notify('No se pudo guardar la especie en este navegador.');return}
-  customSpecies=next;catalog.push(customCatalogItem(item));form.reset();modal(document.querySelector('#species-add-modal'),false);
+  customSpecies=next;
+  if(editing){const index=catalog.findIndex(row=>row.isCustom&&taxonKey(row.name)===oldKey);if(index>=0)catalog.splice(index,1,customCatalogItem(item));if(oldKey!==key)delete taxonomyCache[oldKey]}
+  else catalog.push(customCatalogItem(item));
+  try{localStorage.setItem('fotodex-taxonomy-cache-v1',JSON.stringify(taxonomyCache))}catch{}
+  editingCustomSpeciesName='';form.reset();setSpeciesFormMode('add');modal(document.querySelector('#species-add-modal'),false);
   document.querySelector('#search-input').value=name;document.querySelector('#status-filter').value='todas';document.querySelector('#habitat-filter').value='todos';document.querySelector('#country-filter').value='';document.querySelector('#species-sort').value='name';document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.classList.toggle('selected',chip.dataset.filter==='todas'));
-  collectionVisibleCount=COLLECTION_PAGE_SIZE;renderAll();notify(`${name} añadida a tu lista.`);
+  collectionVisibleCount=COLLECTION_PAGE_SIZE;renderAll();if(editing)showSpeciesDetails(name);notify(editing?'Ficha de especie actualizada.':`${name} añadida a tu lista.`);
 }
 async function exportBackup(){
   const button=document.querySelector('#backup-export');button.disabled=true;button.textContent='Preparando…';
@@ -893,7 +913,7 @@ function showSpeciesDetails(name) {
     <div class="taxonomy-lookup"><button type="button" class="identify-button" data-lookup-taxonomy="${esc(item.name)}">${scientificFor(item)?'Consultar otra coincidencia':'Buscar nombre científico en GBIF'}</button><div id="taxonomy-lookup-results" aria-live="polite"></div></div>
     <p class="privacy-note">Las coincidencias taxonómicas son sugerencias de GBIF y conviene revisarlas.</p>
     ${item.capture&&!String(item.capture.scientific||'').trim()?'<p class="privacy-note">Tu captura aún no tiene nombre científico. Puedes completarlo en la ficha.</p>':''}
-    ${item.capture||item.isCustom?`<div class="detail-actions">${item.capture?`<button class="edit-button" data-open-capture="${esc(item.capture.id)}">${!String(item.capture.scientific||'').trim()?'Completar ficha':'Ver mi captura'}</button>`:''}${item.isCustom?`<button class="delete-button" data-remove-custom-species="${esc(item.name)}">Quitar de mi lista</button>`:''}</div>`:''}`;
+    ${item.capture||item.isCustom?`<div class="detail-actions">${item.capture?`<button class="edit-button" data-open-capture="${esc(item.capture.id)}">${!String(item.capture.scientific||'').trim()?'Completar ficha':'Ver mi captura'}</button>`:''}${item.isCustom&&!item.seen?`<button class="edit-button" data-edit-custom-species="${esc(item.name)}">Editar especie</button>`:''}${item.isCustom?`<button class="delete-button" data-remove-custom-species="${esc(item.name)}">Quitar de mi lista</button>`:''}</div>`:''}`;
   modal(detailModal,true);
 }
 function taxonomyDetailsMarkup(item){
@@ -1095,6 +1115,8 @@ document.addEventListener('click',async event=>{
   if(remove){if(!confirm('¿Eliminar esta captura de este dispositivo y de tu cuenta? No se puede deshacer.'))return;try{const item=captures.find(x=>x.id===remove.dataset.deleteCapture);if(item?.cloudSynced&&authUser?.id===item.cloudUserId){const result=await supabaseClient.from('captures').delete().eq('id',item.id);if(result.error)throw result.error;await supabaseClient.storage.from('captures').remove([`${authUser.id}/${item.id}.jpg`]);}await deleteCapture(remove.dataset.deleteCapture);modal(detailModal,false);await refresh();await loadCloudCaptures();renderAll();notify('Captura eliminada.')}catch{notify('No se pudo eliminar la captura.')}return}
   const species=event.target.closest('[data-species]');
   if(species){showSpeciesDetails(species.dataset.species);return}
+  const editCustom=event.target.closest('[data-edit-custom-species]');
+  if(editCustom){openEditCustomSpecies(editCustom.dataset.editCustomSpecies);return}
   const removeCustom=event.target.closest('[data-remove-custom-species]');
   if(removeCustom){
     const name=removeCustom.dataset.removeCustomSpecies,key=taxonKey(name),ownedCloud=cloudCaptures.filter(item=>item.userId===authUser?.id);

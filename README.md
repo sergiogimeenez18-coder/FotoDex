@@ -21,7 +21,7 @@ La primera carga necesita conexión a internet. Después se puede abrir la inter
 - Consultar una estimación del espacio usado por FotoDex en el navegador y pedir que se conserve frente a limpiezas automáticas, si el navegador lo permite.
 - Explorar la colección con búsqueda, filtros por grupo, estado, hábitat, país y fichas sin nombre científico, además de ordenar por fecha de captura o nombre.
 - Explorar una lista principal de 853 nombres del documento aportado: 620 aves, 152 mamíferos, 78 reptiles y 3 de otros grupos, con carga progresiva para mantener ágil la colección en móvil.
-- Añadir especies propias a la lista y quitarlas mientras no tengan capturas guardadas; las copias de seguridad incluyen esas especies y los datos científicos consultados.
+- Añadir, editar o quitar especies propias mientras no tengan capturas guardadas; las copias de seguridad incluyen esas especies y los datos científicos consultados.
 - Consultar en GBIF nombres científicos y clasificación; las coincidencias deben revisarse y solo se guardan al aceptarlas.
 - Crear una cuenta e iniciar sesión con correo y contraseña, restablecer una contraseña perdida y guardar nuevas capturas en Supabase.
 - Elegir si una captura es privada, visible para seguidores o pública; la foto vive en un bucket privado.
