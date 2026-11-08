@@ -261,7 +261,8 @@ function renderExplore() {
   document.querySelectorAll('[data-explore-mode]').forEach(button=>button.classList.toggle('selected',button.dataset.exploreMode===exploreMode));
   if(peopleMode){renderPeople();return}
   const term = norm(document.querySelector('#explore-search').value);
-  const all=[...cloudCaptures,...demoObservations];updateExploreFilterOptions(all);
+  const sharedCloud=cloudCaptures.filter(item=>item.visibility==='public'||item.visibility==='followers');
+  const all=sharedCloud.length?sharedCloud:demoObservations;updateExploreFilterOptions(all);
   const group=document.querySelector('#explore-group-filter').value,habitat=document.querySelector('#explore-habitat-filter').value,country=document.querySelector('#explore-country-filter').value;
   const visible = all.filter(item=>norm([item.name,item.scientific,item.place,item.user].join(' ')).includes(term)
     &&(group==='todos'||item.kind===group)&&(habitat==='todos'||norm(item.habitat)===norm(habitat))&&(country==='todos'||norm(item.country)===norm(country)));
@@ -311,9 +312,11 @@ async function openExplorerProfile(id){
 }
 function renderAll() {
   clearURLs(); updateCounts(); setOptions();
+  const sharedCloud=cloudCaptures.filter(item=>item.visibility==='public'||item.visibility==='followers');
   const cloudIds = new Set(cloudCaptures.map(item=>item.id));
   const localOnly = captures.filter(item=>!cloudIds.has(item.id)).slice(0,3);
-  const feed = [...cloudCaptures.slice(0,4), ...localOnly.map(item=>({ ...item, local:true })), ...demoObservations].slice(0,5);
+  const sampleFeed=sharedCloud.length||localOnly.length?[]:demoObservations;
+  const feed = [...sharedCloud.slice(0,4), ...localOnly.map(item=>({ ...item, local:true })), ...sampleFeed].slice(0,5);
   document.querySelector('#feed-list').innerHTML = feed.length ? feed.map(item=>item.local?localCard(item):communityCard(item)).join('') : '<div class="empty-state"><strong>Aún no hay capturas</strong>Haz tu primera foto para empezar.</div>';
   renderSpecies(); renderExplore();
   const ownSpecies = entries().filter(item=>item.seen).slice(0,4);
@@ -814,19 +817,27 @@ function taxonomyDetailsMarkup(item){
   const key=Number(taxon.key),link=Number.isFinite(key)?`https://www.gbif.org/species/${key}`:'https://www.gbif.org/';
   return `<div class="taxonomy-source">${levels?`<div class="taxonomy-levels">${levels}</div>`:''}<a href="${link}" target="_blank" rel="noopener">Fuente: GBIF · Ver ficha taxonómica ↗</a></div>`;
 }
+function commonNameSimilarity(left,right){
+  const a=new Set(taxonKey(left).split(/[^\p{L}\p{N}]+/u).filter(token=>token.length>2));
+  const b=new Set(taxonKey(right).split(/[^\p{L}\p{N}]+/u).filter(token=>token.length>2));
+  if(!a.size||!b.size)return 0;
+  let shared=0;for(const token of a)if(b.has(token))shared++;
+  return 2*shared/(a.size+b.size);
+}
 async function lookupTaxonomy(name){
   const results=document.querySelector('#taxonomy-lookup-results');if(!results)return;
-  const run=++taxonomyLookupRun;activeTaxonomyName=name;activeTaxonomyCandidates=[];results.innerHTML='<p class="ai-status">Buscando coincidencias exactas en español…</p>';
+  const run=++taxonomyLookupRun;activeTaxonomyName=name;activeTaxonomyCandidates=[];results.innerHTML='<p class="ai-status">Buscando nombres comunes en español…</p>';
   try{
     const params=new URLSearchParams({q:name,language:'es',rank:'SPECIES',status:'ACCEPTED',limit:'100'});
     const response=await fetch(`https://api.gbif.org/v1/species/search?${params}`,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(12000)});
     if(run!==taxonomyLookupRun)return;
     if(!response.ok){results.innerHTML=response.status===429?'<p class="ai-status">GBIF está limitando consultas temporalmente. Inténtalo más tarde.</p>':'<p class="ai-status">No se pudo consultar GBIF ahora.</p>';return}
-    const data=await response.json();
-    const candidates=(Array.isArray(data.results)?data.results:[]).filter(row=>row.rank==='SPECIES'&&taxonKey(row.vernacularName)===taxonKey(name)&&(!row.status||row.status==='ACCEPTED')&&(row.canonicalName||row.scientificName));
-    activeTaxonomyCandidates=[...new Map(candidates.map(row=>[row.key,{key:row.key,canonicalName:row.canonicalName||row.scientificName,className:row.class,order:row.order,family:row.family}])).values()];
-    if(!activeTaxonomyCandidates.length){results.innerHTML='<p class="ai-status">GBIF no encontró una coincidencia exacta para este nombre en español. No se ha cambiado la ficha.</p>';return}
-    results.innerHTML=activeTaxonomyCandidates.map((row,index)=>`<article class="taxonomy-candidate"><strong>${esc(row.canonicalName||'Nombre científico no disponible')}</strong><small>${esc([row.className,row.order,row.family].filter(Boolean).join(' · ')||'Clasificación pendiente')}</small><button type="button" class="edit-button" data-apply-taxonomy="${index}">Aplicar sugerencia</button></article>`).join('');
+    const data=await response.json(),rows=(Array.isArray(data.results)?data.results:[]).filter(row=>row.rank==='SPECIES'&&(!row.status||row.status==='ACCEPTED')&&(row.canonicalName||row.scientificName));
+    const exact=rows.filter(row=>taxonKey(row.vernacularName)===taxonKey(name)).map(row=>({...row,commonNameMatch:'exacta'}));
+    const candidates=exact.length?exact:rows.map(row=>({...row,nameScore:commonNameSimilarity(name,row.vernacularName||'')})).filter(row=>row.vernacularName&&row.nameScore>=0.66).sort((a,b)=>b.nameScore-a.nameScore).slice(0,5).map(row=>({...row,commonNameMatch:'aproximada'}));
+    activeTaxonomyCandidates=[...new Map(candidates.map(row=>[row.key,{key:row.key,canonicalName:row.canonicalName||row.scientificName,className:row.class,order:row.order,family:row.family,vernacularName:row.vernacularName,commonNameMatch:row.commonNameMatch}])).values()];
+    if(!activeTaxonomyCandidates.length){results.innerHTML='<p class="ai-status">GBIF no encontró nombres comunes cercanos en español. No se ha cambiado la ficha.</p>';return}
+    results.innerHTML=activeTaxonomyCandidates.map((row,index)=>`<article class="taxonomy-candidate"><strong>${esc(row.canonicalName||'Nombre científico no disponible')}</strong><small>${row.commonNameMatch==='aproximada'?`Nombre común en GBIF: «${esc(row.vernacularName)}». Coincidencia aproximada; comprueba que sea tu especie. `:''}${esc([row.className,row.order,row.family].filter(Boolean).join(' · ')||'Clasificación pendiente')}</small><button type="button" class="edit-button" data-apply-taxonomy="${index}">Aplicar sugerencia</button></article>`).join('');
   }catch(error){if(run!==taxonomyLookupRun)return;console.warn('FotoDex GBIF lookup:',error);results.innerHTML='<p class="ai-status">No se pudo conectar con GBIF. Comprueba la conexión e inténtalo de nuevo.</p>'}
 }
 async function applyTaxonomySuggestion(index){
