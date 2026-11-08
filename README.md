@@ -2,6 +2,15 @@
 
 FotoDex es una aplicación web móvil instalable (PWA) para registrar observaciones de animales.
 
+## Abrir e instalar FotoDex
+
+Abre la versión publicada en [FotoDex](https://sergiogimeenez18-coder.github.io/FotoDex/). En el móvil puedes usarla directamente desde el navegador o añadirla a la pantalla de inicio:
+
+- **Android (Chrome):** abre el enlace, pulsa **⋮** y elige **Instalar aplicación** o **Añadir a pantalla de inicio**.
+- **iPhone (Safari):** abre el enlace, pulsa **Compartir** y elige **Añadir a pantalla de inicio**.
+
+La primera carga necesita conexión a internet. Después se puede abrir la interfaz básica sin conexión; iniciar sesión, sincronizar capturas, explorar publicaciones de la comunidad e identificar animales necesitan conexión.
+
 ## Funciones disponibles en esta versión
 
 - Capturar una foto con la cámara del móvil o seleccionarla desde la galería.
