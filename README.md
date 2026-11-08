@@ -14,7 +14,7 @@ La primera carga necesita conexión a internet. Después se puede abrir la inter
 ## Funciones disponibles en esta versión
 
 - Capturar una foto con la cámara del móvil o seleccionarla desde la galería.
-- Reducir las imágenes a un máximo de 1920 px y guardarlas como JPEG optimizado antes de almacenarlas.
+- Reducir las imágenes a un máximo inicial de 1920 px y ajustar calidad y tamaño para intentar mantener cada JPEG por debajo de 1,5 MB; la vista previa indica el peso y las dimensiones finales.
 - Crear, editar, consultar y eliminar fichas con nombre común y científico, grupo, hábitat, país, lugar, fecha y notas.
 - Guardar las fichas e imágenes en IndexedDB del navegador. La ubicación precisa es opcional y permanece en el dispositivo.
 - Explorar la colección con búsqueda, filtros por grupo, estado, hábitat, país y fichas sin nombre científico, además de ordenar por fecha de captura o nombre.

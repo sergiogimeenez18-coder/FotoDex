@@ -631,7 +631,7 @@ function showEditor(photo, existing=null) {
   choicePanel.classList.add('hidden'); editorPanel.classList.remove('hidden');
   if(previewURL) URL.revokeObjectURL(previewURL);
   previewURL=URL.createObjectURL(photo.blob); document.querySelector('#photo-preview').src=previewURL;
-  document.querySelector('#photo-size').textContent='Foto optimizada · '+Math.max(1,Math.round(photo.blob.size/1024)).toLocaleString('es-ES')+' KB';
+  document.querySelector('#photo-size').textContent='Foto optimizada · '+Math.max(1,Math.round(photo.blob.size/1024)).toLocaleString('es-ES')+' KB · '+photo.width+' × '+photo.height+' px';
   form.elements.name.value=existing?.name||''; form.elements.scientific.value=existing?.scientific||'';
   form.elements.kind.value=existing?.kind||''; form.elements.habitat.value=existing?.habitat||'';
   form.elements.country.value=existing?.country||''; form.elements.place.value=existing?.place||'';
@@ -671,13 +671,24 @@ function pickPhoto(camera) {
 function compressPhoto(file) {
   return new Promise((resolve,reject)=>{
     const img=new Image(), source=URL.createObjectURL(file);
-    img.onload=()=>{
-      const max=1920, scale=Math.min(1,max/Math.max(img.width,img.height));
-      const canvas=document.createElement('canvas'); canvas.width=Math.max(1,Math.round(img.width*scale)); canvas.height=Math.max(1,Math.round(img.height*scale));
-      const ctx=canvas.getContext('2d',{alpha:false});
-      if(!ctx){URL.revokeObjectURL(source);reject(new Error('Canvas unavailable'));return}
-      ctx.drawImage(img,0,0,canvas.width,canvas.height); URL.revokeObjectURL(source);
-      canvas.toBlob(blob=>blob?resolve({blob,width:canvas.width,height:canvas.height}):reject(new Error('Compression failed')),'image/jpeg',0.82);
+    img.onload=async()=>{
+      const maxEdge=1920,maxBytes=1_500_000,qualities=[0.82,0.76,0.70],canvas=document.createElement('canvas');
+      let scale=Math.min(1,maxEdge/Math.max(img.width,img.height)),blob=null;
+      try{
+        for(let pass=0;pass<5;pass++){
+          canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+          const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('Canvas unavailable');
+          ctx.fillStyle='#f5f7f2';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          for(const quality of qualities){
+            blob=await new Promise(done=>canvas.toBlob(done,'image/jpeg',quality));
+            if(!blob)throw new Error('Compression failed');
+            if(blob.size<=maxBytes||(pass===4&&quality===0.70))break;
+          }
+          if(blob.size<=maxBytes||pass===4)break;
+          scale*=0.88;
+        }
+        URL.revokeObjectURL(source);resolve({blob,width:canvas.width,height:canvas.height});
+      }catch(error){URL.revokeObjectURL(source);reject(error)}
     };
     img.onerror=()=>{URL.revokeObjectURL(source);reject(new Error('Image failed'))}; img.src=source;
   });
