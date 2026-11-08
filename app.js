@@ -22,11 +22,15 @@ const starterCatalog = [
   name, scientific, emoji, kind, habitat, description,
   palette: ['linear-gradient(145deg,#dce9d7,#799477)','linear-gradient(145deg,#efe5bd,#a2ad70)','linear-gradient(145deg,#d9e2bf,#819572)','linear-gradient(145deg,#e6d8c1,#a78f73)'][index % 4]
 }));
-const targetKinds={aves:{emoji:'🐦',palette:'linear-gradient(145deg,#dce9d7,#799477)'},mamiferos:{emoji:'🐾',palette:'linear-gradient(145deg,#e6d8c1,#a78f73)'},reptiles:{emoji:'🦎',palette:'linear-gradient(145deg,#d9e2bf,#819572)'},otros:{emoji:'🌊',palette:'linear-gradient(145deg,#dce8ed,#789aa2)'}};
+const targetKinds={aves:{emoji:'🐦',palette:'linear-gradient(145deg,#dce9d7,#799477)'},mamiferos:{emoji:'🐾',palette:'linear-gradient(145deg,#e6d8c1,#a78f73)'},reptiles:{emoji:'🦎',palette:'linear-gradient(145deg,#d9e2bf,#819572)'},anfibios:{emoji:'🐸',palette:'linear-gradient(145deg,#d9e8d1,#839c76)'},insectos:{emoji:'🦋',palette:'linear-gradient(145deg,#efe5bd,#a2ad70)'},peces:{emoji:'🐟',palette:'linear-gradient(145deg,#dce8ed,#789aa2)'},otros:{emoji:'🌊',palette:'linear-gradient(145deg,#dce8ed,#789aa2)'}};
 const starterByName=new Map(starterCatalog.map(item=>[item.name.toLocaleLowerCase('es'),item]));
-const catalog=Array.isArray(window.FOTODEX_SPECIES_TARGETS)&&window.FOTODEX_SPECIES_TARGETS.length
+let customSpecies=[];
+try{const saved=JSON.parse(localStorage.getItem('fotodex-custom-species-v1')||'[]');if(Array.isArray(saved))customSpecies=saved.filter(item=>item&&typeof item.name==='string'&&typeof item.kind==='string').slice(0,500)}catch{}
+const baseCatalog=Array.isArray(window.FOTODEX_SPECIES_TARGETS)&&window.FOTODEX_SPECIES_TARGETS.length
   ? window.FOTODEX_SPECIES_TARGETS.map((item,index)=>{const known=starterByName.get(item.name.toLocaleLowerCase('es'));return {name:item.name,scientific:known?.scientific||'',emoji:known?.emoji||targetKinds[item.kind]?.emoji||'🐾',kind:item.kind,habitat:known?.habitat||'',description:known?.description||'Especie incluida en la lista principal de FotoDex. Los datos científicos y de hábitat se completarán con fuentes fiables.',palette:known?.palette||targetKinds[item.kind]?.palette||['linear-gradient(145deg,#dce9d7,#799477)','linear-gradient(145deg,#efe5bd,#a2ad70)','linear-gradient(145deg,#d9e2bf,#819572)','linear-gradient(145deg,#e6d8c1,#a78f73)'][index%4]}})
   : starterCatalog;
+const customCatalogItem=item=>({name:item.name,scientific:item.scientific||'',emoji:targetKinds[item.kind]?.emoji||'🐾',kind:item.kind,habitat:item.habitat||'',description:'Añadida por ti a tu lista de especies.',palette:targetKinds[item.kind]?.palette||'linear-gradient(145deg,#dce9d7,#799477)'});
+const catalog=[...baseCatalog,...customSpecies.map(customCatalogItem)];
 
 const photoInput = document.querySelector('#photo-input');
 const captureModal = document.querySelector('#capture-modal');
@@ -316,18 +320,31 @@ function renderAll() {
   document.querySelector('#profile-grid').innerHTML = ownSpecies.length ? ownSpecies.map(speciesCard).join('') : '<div class="empty-state"><strong>Tu actividad aparecerá aquí</strong>Guarda tu primera captura para empezar.</div>';
 }
 async function refresh() { captures = await readCaptures(); updateLocalSyncButton(); renderAll(); }
+function openAddSpecies(){document.querySelector('#species-add-form').reset();modal(document.querySelector('#species-add-modal'),true)}
+function submitCustomSpecies(event){
+  event.preventDefault();const form=event.currentTarget;if(!form.reportValidity())return;
+  if(customSpecies.length>=500){notify('Has alcanzado el límite de 500 especies personalizadas en este navegador.');return}
+  const data=new FormData(form),name=String(data.get('name')||'').trim(),key=taxonKey(name),kind=String(data.get('kind')||'');
+  if(catalog.some(item=>taxonKey(item.name)===key)||captures.some(item=>taxonKey(item.name)===key)){notify('Esta especie ya está en tu lista o en tus capturas.');return}
+  const item={name,kind,scientific:String(data.get('scientific')||'').trim(),habitat:String(data.get('habitat')||'').trim()};
+  const next=[...customSpecies,item];
+  try{localStorage.setItem('fotodex-custom-species-v1',JSON.stringify(next))}catch{notify('No se pudo guardar la especie en este navegador.');return}
+  customSpecies=next;catalog.push(customCatalogItem(item));form.reset();modal(document.querySelector('#species-add-modal'),false);
+  document.querySelector('#search-input').value=name;document.querySelector('#status-filter').value='todas';document.querySelector('#habitat-filter').value='todos';document.querySelector('#country-filter').value='';document.querySelector('#species-sort').value='name';document.querySelectorAll('.chip[data-filter]').forEach(chip=>chip.classList.toggle('selected',chip.dataset.filter==='todas'));
+  collectionVisibleCount=COLLECTION_PAGE_SIZE;renderAll();notify(`${name} añadida a tu lista.`);
+}
 async function exportBackup(){
   const button=document.querySelector('#backup-export');button.disabled=true;button.textContent='Preparando…';
   try{
-    const items=await readCaptures();if(!items.length){notify('Todavía no hay capturas guardadas en este navegador.');return}
+    const items=await readCaptures();if(!items.length&&!customSpecies.length&&!Object.keys(taxonomyCache).length){notify('Todavía no hay capturas ni especies añadidas para guardar.');return}
     const includePreciseLocations=document.querySelector('#backup-include-location').checked;
-    const backup={format:'fotodex-backup',version:1,exportedAt:new Date().toISOString(),includesPreciseLocations:includePreciseLocations,captures:await Promise.all(items.map(async item=>({
+    const backup={format:'fotodex-backup',version:2,exportedAt:new Date().toISOString(),includesPreciseLocations:includePreciseLocations,customSpecies,taxonomyCache,captures:await Promise.all(items.map(async item=>({
       name:item.name,scientific:item.scientific||'',kind:item.kind,habitat:item.habitat||'',country:item.country||'',place:item.place||'',notes:item.notes||'',capturedOn:item.capturedOn,
       photoDataUrl:await blobDataURL(item.photo),photoWidth:item.photoWidth,photoHeight:item.photoHeight,coordinates:includePreciseLocations?(item.coordinates||null):null,
       identificationSource:item.identificationSource||'manual',identificationConfidence:item.identificationConfidence??null,createdAt:item.createdAt||new Date().toISOString()
     })))};
     const file=new Blob([JSON.stringify(backup)],{type:'application/json'}),url=URL.createObjectURL(file),anchor=document.createElement('a');
-    anchor.href=url;anchor.download=`fotodex-copia-${new Date().toISOString().slice(0,10)}.json`;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify(`Copia descargada · ${items.length} capturas.`);
+    anchor.href=url;anchor.download=`fotodex-copia-${new Date().toISOString().slice(0,10)}.json`;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify(`Copia descargada · ${items.length} capturas y ${customSpecies.length} especies añadidas.`);
   }catch(error){console.warn('FotoDex backup export:',error);notify('No se pudo preparar la copia. Prueba con menos capturas.')}
   finally{button.disabled=false;button.textContent='Descargar copia'}
 }
@@ -337,9 +354,23 @@ async function importBackupFile(file){
   let imported=0;
   try{
     const backup=JSON.parse(await file.text());
-    if(backup?.format!=='fotodex-backup'||backup.version!==1||!Array.isArray(backup.captures)||backup.captures.length>300)throw new Error('Formato no válido');
+    if(backup?.format!=='fotodex-backup'||![1,2].includes(backup.version)||!Array.isArray(backup.captures)||backup.captures.length>300)throw new Error('Formato no válido');
+    const speciesRows=backup.version===2&&Array.isArray(backup.customSpecies)?backup.customSpecies.filter(row=>row&&typeof row.name==='string'&&row.name.trim()&&row.name.length<=90&&['aves','mamiferos','reptiles','anfibios','insectos','peces','otros'].includes(row.kind)).slice(0,500):[];
+    const taxonRows=backup.version===2&&backup.taxonomyCache&&typeof backup.taxonomyCache==='object'&&!Array.isArray(backup.taxonomyCache)?Object.entries(backup.taxonomyCache).slice(0,1000):[];
     const includesPreciseLocations=backup.includesPreciseLocations===true||backup.captures.some(row=>row?.coordinates);
-    if(!confirm(`La copia contiene ${backup.captures.length} capturas${includesPreciseLocations?' e incluye ubicaciones precisas':''}. Se añadirán como capturas locales privadas con identificadores nuevos; no se subirán a la nube. ¿Continuar?`))return;
+    if(!confirm(`La copia contiene ${backup.captures.length} capturas y ${speciesRows.length} especies añadidas${taxonRows.length?' con datos científicos consultados':''}${includesPreciseLocations?' e incluye ubicaciones precisas':''}. Las capturas se añadirán como privadas y no se subirán a la nube. ¿Continuar?`))return;
+    let speciesImported=0,taxaImported=0;
+    for(const row of speciesRows){
+      const name=row.name.trim(),key=taxonKey(name);if(catalog.some(item=>taxonKey(item.name)===key)||customSpecies.length>=500)continue;
+      const item={name,kind:row.kind,scientific:typeof row.scientific==='string'?row.scientific.slice(0,120):'',habitat:typeof row.habitat==='string'?row.habitat.slice(0,80):''};
+      customSpecies.push(item);catalog.push(customCatalogItem(item));speciesImported++;
+    }
+    if(speciesImported)try{localStorage.setItem('fotodex-custom-species-v1',JSON.stringify(customSpecies))}catch(error){console.warn('FotoDex custom species backup:',error)}
+    for(const [key,row] of taxonRows){
+      if(typeof row?.canonicalName!=='string'||!row.canonicalName.trim()||String(key).length>120)continue;
+      taxonomyCache[String(key)]={key:Number.isSafeInteger(Number(row.key))?Number(row.key):null,canonicalName:row.canonicalName.slice(0,120),className:typeof row.className==='string'?row.className.slice(0,80):'',order:typeof row.order==='string'?row.order.slice(0,80):'',family:typeof row.family==='string'?row.family.slice(0,80):''};taxaImported++;
+    }
+    if(taxaImported)try{localStorage.setItem('fotodex-taxonomy-cache-v1',JSON.stringify(taxonomyCache))}catch(error){console.warn('FotoDex taxonomy backup:',error)}
     for(const row of backup.captures){
       if(typeof row.name!=='string'||!row.name.trim()||row.name.length>90||!['aves','mamiferos','reptiles','anfibios','insectos','peces','otros'].includes(row.kind))continue;
       const match=typeof row.photoDataUrl==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.exec(row.photoDataUrl);if(!match)continue;
@@ -356,7 +387,7 @@ async function importBackupFile(file){
         cloudSynced:false,cloudUserId:null,createdAt:typeof row.createdAt==='string'?row.createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
       imported++;
     }
-    await refresh();notify(imported?`Se restauraron ${imported} capturas en este dispositivo.`:'No se encontraron capturas válidas en la copia.');
+    await refresh();notify(`Copia restaurada: ${imported} capturas y ${speciesImported} especies añadidas.`);
   }catch(error){console.warn('FotoDex backup import:',error);notify(imported?`Se restauraron ${imported} capturas antes de un error.`:'No se pudo leer esa copia de FotoDex.')}
 }
 
@@ -884,6 +915,8 @@ async function submitComment(event) {
 document.querySelector('#today-label').textContent=new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toLocaleUpperCase('es');
 document.querySelector('#search-input').addEventListener('input',renderSpecies);
 document.querySelector('#show-more-species').addEventListener('click',()=>{collectionVisibleCount+=COLLECTION_PAGE_SIZE;renderSpecies(false)});
+document.querySelector('#add-species').addEventListener('click',openAddSpecies);
+document.querySelector('#species-add-form').addEventListener('submit',submitCustomSpecies);
 document.querySelector('#explore-search').addEventListener('input',renderExplore);
 document.querySelector('#explore-filter-button').addEventListener('click',()=>document.querySelector('#explore-filters').classList.toggle('filters-open'));
 ['explore-group-filter','explore-habitat-filter','explore-country-filter'].forEach(id=>document.querySelector('#'+id).addEventListener('change',renderExplore));
@@ -928,6 +961,9 @@ photoInput.addEventListener('change',async event=>{
   finally{event.target.value=''}
 });
 document.addEventListener('click',async event=>{
+  if(event.target.closest('[data-close-species-add]')){modal(document.querySelector('#species-add-modal'),false);return}
+  if(event.target.closest('.modal-close')&&document.querySelector('#species-add-modal').classList.contains('open')){modal(document.querySelector('#species-add-modal'),false);return}
+  if(event.target===document.querySelector('#species-add-modal')){modal(document.querySelector('#species-add-modal'),false);return}
   const taxonomyLookup=event.target.closest('[data-lookup-taxonomy]');
   if(taxonomyLookup){await lookupTaxonomy(taxonomyLookup.dataset.lookupTaxonomy);return}
   const applyTaxonomy=event.target.closest('[data-apply-taxonomy]');
