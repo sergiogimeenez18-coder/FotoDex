@@ -63,6 +63,13 @@ let identificationConfidence = null;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const kindLabel = kind => ({ aves:'Ave', mamiferos:'Mamífero', reptiles:'Reptil', anfibios:'Anfibio', insectos:'Insecto', peces:'Pez', otros:'Otro' })[kind] || 'Animal';
 const norm = value => String(value || '').trim().toLocaleLowerCase('es');
+const taxonKey = value => norm(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');
+let taxonomyCache={};
+try{taxonomyCache=JSON.parse(localStorage.getItem('fotodex-taxonomy-cache-v1')||'{}')||{}}catch{}
+let activeTaxonomyName='';
+let activeTaxonomyCandidates=[];
+let taxonomyLookupRun=0;
+function scientificFor(item){return item?.capture?.scientific||item?.scientific||taxonomyCache[taxonKey(item?.name)]?.canonicalName||''}
 const matchesSpecies = (a, b) => (a.scientific && b.scientific && norm(a.scientific) === norm(b.scientific)) || norm(a.name) === norm(b.name);
 function identificationInfo(item) {
   if(item?.identificationSource==='ai'){
@@ -139,8 +146,9 @@ function entries() {
   const ownCloud = authUser ? cloudCaptures.filter(item => item.userId === authUser.id) : [];
   const allCaptures = [...captures, ...ownCloud];
   const result = catalog.map(species => {
-    const capture = allCaptures.find(item => matchesSpecies(species, item));
-    return { ...species, capture, seen: Boolean(capture) };
+    const enriched={...species,scientific:species.scientific||taxonomyCache[taxonKey(species.name)]?.canonicalName||''};
+    const capture = allCaptures.find(item => matchesSpecies(enriched, item));
+    return { ...enriched, capture, seen: Boolean(capture) };
   });
   allCaptures.forEach(capture => {
     if (!result.some(item => matchesSpecies(item, capture))) result.push({
@@ -174,10 +182,10 @@ function localCard(item) {
 }
 function speciesCard(item) {
   const src = item.capture ? imageURL(item.capture) : '';
-  const needsScientific=Boolean(item.capture&&!String(item.capture.scientific||'').trim());
+  const needsScientific=Boolean(item.capture&&!String(item.capture.scientific||scientificFor(item)||'').trim());
   return `<button type="button" class="species-card" data-species="${esc(item.name)}">
     <span class="species-art ${src?'has-photo':''}" style="background:${item.palette}">${src ? `<img src="${src}" alt="${esc(item.name)}" loading="lazy" decoding="async"/>` : `<span class="creature">${item.emoji}</span>`}</span>
-    <span class="species-copy"><span class="species-title">${esc(item.name)}</span><span class="species-scientific">${esc(item.scientific||'Nombre científico pendiente')}</span>
+    <span class="species-copy"><span class="species-title">${esc(item.name)}</span><span class="species-scientific">${esc(scientificFor(item)||'Nombre científico pendiente')}</span>
       <span class="species-foot"><span>⌖ ${esc(item.capture?.place || item.capture?.habitat || item.habitat || 'Hábitat pendiente')}</span><span class="badge ${needsScientific?'badge-review':item.seen?'':'badge-muted'}">${needsScientific?'Completar ficha':item.seen?'Capturada':'Por descubrir'}</span></span>
     </span>
   </button>`;
@@ -738,7 +746,7 @@ function showCaptureDetails(id) {
   const src=imageURL(item), place=[item.place,item.country].filter(Boolean).join(', ')||'Ubicación no indicada';
   document.querySelector('#species-detail-content').innerHTML=`
     <div class="detail-photo">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:'🐾'}</div>
-    <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p>${identificationInfo(item)}
+    <p class="eyebrow">TU OBSERVACIÓN · ${esc(niceDate(item.capturedOn))}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(scientificFor(item)||'Nombre científico pendiente')}</p>${identificationInfo(item)}
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.habitat||'Pendiente')}</strong></div><div><small>UBICACIÓN</small><strong>${esc(place)}</strong></div><div><small>FOTO</small><strong>${item.photoWidth} × ${item.photoHeight} px</strong></div></div>
     ${item.notes?`<p class="detail-notes">${esc(item.notes)}</p>`:''}<p class="privacy-note">${item.cloudSyncPending?'Hay cambios pendientes de sincronizar; la copia de tu cuenta podría estar desactualizada.':item.cloudSynced?'Sincronizada con tu cuenta; la ubicación exacta solo la ves tú.':'Guardada solo en este dispositivo; aún no se sincroniza ni se comparte.'}</p>
     <div class="detail-actions">${item.cloudSyncPending&&item.cloudUserId===authUser?.id?`<button class="edit-button" data-retry-sync="${esc(item.id)}">Reintentar sincronización</button>`:''}<button class="edit-button" data-edit-capture="${esc(item.id)}">Editar ficha</button><button class="delete-button" data-delete-capture="${esc(item.id)}">Eliminar</button></div>`;
@@ -757,15 +765,50 @@ function showCloudCaptureDetails(id,profileCapture=null) {
 }
 function showSpeciesDetails(name) {
   const item=entries().find(x=>x.name===name); if(!item)return;
+  taxonomyLookupRun++;activeTaxonomyName=name;activeTaxonomyCandidates=[];
   const src=item.capture?imageURL(item.capture):'';
   document.querySelector('#species-detail-content').innerHTML=`
     <div class="detail-photo" style="background:${item.palette}">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:item.emoji}</div>
-    <p class="eyebrow">FICHA DE ESPECIE · ${item.seen?'YA CAPTURADA':'POR DESCUBRIR'}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p><p class="species-description">${esc(item.description)}</p>
+    <p class="eyebrow">FICHA DE ESPECIE · ${item.seen?'YA CAPTURADA':'POR DESCUBRIR'}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(scientificFor(item)||'Nombre científico pendiente')}</p>${taxonomyDetailsMarkup(item)}<p class="species-description">${esc(item.description)}</p>
     <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.capture?.habitat||item.habitat||'Pendiente')}</strong></div><div><small>ESTADO</small><strong>${item.seen?'Capturada':'Aún no capturada'}</strong></div><div><small>UBICACIÓN</small><strong>${esc(item.capture?.place||item.capture?.country||'Pendiente')}</strong></div></div>
-    <p class="privacy-note">Ficha introductoria; revisaremos los datos científicos al conectar una fuente de referencia.</p>
+    <div class="taxonomy-lookup"><button type="button" class="identify-button" data-lookup-taxonomy="${esc(item.name)}">${scientificFor(item)?'Consultar otra coincidencia':'Buscar nombre científico en GBIF'}</button><div id="taxonomy-lookup-results" aria-live="polite"></div></div>
+    <p class="privacy-note">Las coincidencias taxonómicas son sugerencias de GBIF y conviene revisarlas.</p>
     ${item.capture&&!String(item.capture.scientific||'').trim()?'<p class="privacy-note">Tu captura aún no tiene nombre científico. Puedes completarlo en la ficha.</p>':''}
     ${item.capture?`<div class="detail-actions"><button class="edit-button" data-open-capture="${esc(item.capture.id)}">${!String(item.capture.scientific||'').trim()?'Completar ficha':'Ver mi captura'}</button></div>`:''}`;
   modal(detailModal,true);
+}
+function taxonomyDetailsMarkup(item){
+  const taxon=taxonomyCache[taxonKey(item.name)];if(!taxon)return '';
+  const levels=[['CLASE',taxon.className],['ORDEN',taxon.order],['FAMILIA',taxon.family]].filter(([,value])=>value).map(([label,value])=>`<span><small>${label}</small><strong>${esc(value)}</strong></span>`).join('');
+  const key=Number(taxon.key),link=Number.isFinite(key)?`https://www.gbif.org/species/${key}`:'https://www.gbif.org/';
+  return `<div class="taxonomy-source">${levels?`<div class="taxonomy-levels">${levels}</div>`:''}<a href="${link}" target="_blank" rel="noopener">Fuente: GBIF · Ver ficha taxonómica ↗</a></div>`;
+}
+async function lookupTaxonomy(name){
+  const results=document.querySelector('#taxonomy-lookup-results');if(!results)return;
+  const run=++taxonomyLookupRun;activeTaxonomyName=name;activeTaxonomyCandidates=[];results.innerHTML='<p class="ai-status">Buscando coincidencias exactas en español…</p>';
+  try{
+    const params=new URLSearchParams({q:name,language:'es',rank:'SPECIES',status:'ACCEPTED',limit:'100'});
+    const response=await fetch(`https://api.gbif.org/v1/species/search?${params}`,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(12000)});
+    if(run!==taxonomyLookupRun)return;
+    if(!response.ok){results.innerHTML=response.status===429?'<p class="ai-status">GBIF está limitando consultas temporalmente. Inténtalo más tarde.</p>':'<p class="ai-status">No se pudo consultar GBIF ahora.</p>';return}
+    const data=await response.json();
+    const candidates=(Array.isArray(data.results)?data.results:[]).filter(row=>row.rank==='SPECIES'&&taxonKey(row.vernacularName)===taxonKey(name)&&(!row.status||row.status==='ACCEPTED')&&(row.canonicalName||row.scientificName));
+    activeTaxonomyCandidates=[...new Map(candidates.map(row=>[row.key,{key:row.key,canonicalName:row.canonicalName||row.scientificName,className:row.class,order:row.order,family:row.family}])).values()];
+    if(!activeTaxonomyCandidates.length){results.innerHTML='<p class="ai-status">GBIF no encontró una coincidencia exacta para este nombre en español. No se ha cambiado la ficha.</p>';return}
+    results.innerHTML=activeTaxonomyCandidates.map((row,index)=>`<article class="taxonomy-candidate"><strong>${esc(row.canonicalName||'Nombre científico no disponible')}</strong><small>${esc([row.className,row.order,row.family].filter(Boolean).join(' · ')||'Clasificación pendiente')}</small><button type="button" class="edit-button" data-apply-taxonomy="${index}">Aplicar sugerencia</button></article>`).join('');
+  }catch(error){if(run!==taxonomyLookupRun)return;console.warn('FotoDex GBIF lookup:',error);results.innerHTML='<p class="ai-status">No se pudo conectar con GBIF. Comprueba la conexión e inténtalo de nuevo.</p>'}
+}
+async function applyTaxonomySuggestion(index){
+  const candidate=activeTaxonomyCandidates[index],name=activeTaxonomyName;if(!candidate?.canonicalName||!name)return;
+  taxonomyCache[taxonKey(name)]=candidate;try{localStorage.setItem('fotodex-taxonomy-cache-v1',JSON.stringify(taxonomyCache))}catch{}
+  const capture=captures.find(item=>taxonKey(item.name)===taxonKey(name));
+  if(capture&&!String(capture.scientific||'').trim()){
+    capture.scientific=candidate.canonicalName;capture.updatedAt=new Date().toISOString();
+    if(capture.cloudSynced)capture.cloudSyncPending=true;
+    try{await writeCapture(capture);captures=await readCaptures()}catch(error){console.warn('FotoDex taxonomy save:',error);notify('No se pudo guardar el cambio en tu captura. La sugerencia sigue disponible en esta ficha.');renderAll();showSpeciesDetails(name);return}
+    if(capture.cloudSyncPending&&authUser?.id===capture.cloudUserId&&navigator.onLine)await retryCaptureSync(capture.id);
+  }
+  renderAll();showSpeciesDetails(name);notify('Sugerencia científica guardada. Revisa la ficha antes de compartirla.');
 }
 function useLocation() {
   if(coordinates){coordinates=null;updateLocationUI();notify('Ubicación precisa quitada de esta ficha.');return}
@@ -885,6 +928,10 @@ photoInput.addEventListener('change',async event=>{
   finally{event.target.value=''}
 });
 document.addEventListener('click',async event=>{
+  const taxonomyLookup=event.target.closest('[data-lookup-taxonomy]');
+  if(taxonomyLookup){await lookupTaxonomy(taxonomyLookup.dataset.lookupTaxonomy);return}
+  const applyTaxonomy=event.target.closest('[data-apply-taxonomy]');
+  if(applyTaxonomy){await applyTaxonomySuggestion(Number(applyTaxonomy.dataset.applyTaxonomy));return}
   const retrySync=event.target.closest('[data-retry-sync]');
   if(retrySync){await retryCaptureSync(retrySync.dataset.retrySync);return}
   const aiCandidate=event.target.closest('[data-ai-candidate]');if(aiCandidate){applyAiCandidate(Number(aiCandidate.dataset.aiCandidate));return}

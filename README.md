@@ -10,6 +10,7 @@ FotoDex es una aplicación web móvil instalable (PWA) para registrar observacio
 - Guardar las fichas e imágenes en IndexedDB del navegador. La ubicación precisa es opcional y permanece en el dispositivo.
 - Explorar la colección con búsqueda, filtros por grupo, estado, hábitat, país y fichas sin nombre científico, además de ordenar por fecha de captura o nombre.
 - Explorar una lista principal de 853 nombres del documento aportado: 620 aves, 152 mamíferos, 78 reptiles y 3 de otros grupos, con carga progresiva para mantener ágil la colección en móvil.
+- Consultar en GBIF nombres científicos y clasificación; las coincidencias deben revisarse y solo se guardan al aceptarlas.
 - Crear una cuenta e iniciar sesión con correo y contraseña; guardar nuevas capturas en Supabase.
 - Elegir si una captura es privada, visible para seguidores o pública; la foto vive en un bucket privado.
 - Seguir a otros usuarios, dar me gusta y comentar capturas compartidas.
