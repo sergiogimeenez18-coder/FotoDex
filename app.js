@@ -181,13 +181,14 @@ function updateCounts() {
   const ownCloud = authUser ? cloudCaptures.filter(item => item.userId === authUser.id) : [];
   const ownCaptures = [...new Map([...captures, ...ownCloud].map(item=>[item.id,item])).values()];
   const habitats = new Set(ownCaptures.map(item => item.habitat).filter(Boolean)).size;
-  const percent = Math.min(100, Math.round(collected / 40 * 100));
+  const percent = Math.min(100, Math.round(collected / Math.max(1, all.length) * 100));
   document.querySelector('#capture-count').textContent = ownCaptures.length;
   document.querySelector('#species-count').textContent = collected;
   document.querySelector('#habitat-count').textContent = habitats;
   document.querySelector('#profile-capture-count').textContent = ownCaptures.length;
   document.querySelector('#profile-species-count').textContent = collected;
   document.querySelector('#progress-count').textContent = collected;
+  document.querySelector('#progress-total').textContent = all.length;
   document.querySelector('#progress-bar').style.width = percent + '%';
   document.querySelector('#progress-percent').textContent = percent + '%';
   document.querySelector('#progress-message').textContent = collected ? '¡Tu colección está creciendo!' : 'Tu primera especie te espera.';
