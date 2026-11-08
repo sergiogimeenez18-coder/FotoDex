@@ -5,7 +5,7 @@ const demoObservations = [
   { id: 4, name: 'Abejaruco europeo', scientific: 'Merops apiaster', emoji: '🐤', place: 'Alcalá de Henares', ago: 'hace 2 h', user: 'Diego F.', initial: 'D', kind: 'aves', palette: 'linear-gradient(145deg,#e8dcae,#9ab0a2)', likes: 12, liked: false }
 ];
 
-const catalog = [
+const starterCatalog = [
   ['Petirrojo europeo','Erithacus rubecula','🐦','aves','Bosque y jardines','Ave pequeña reconocible por la mancha anaranjada de la cara y el pecho.'],
   ['Mariposa macaón','Papilio machaon','🦋','insectos','Praderas y huertos','Mariposa grande de alas amarillas y negras.'],
   ['Lagartija ibérica','Podarcis hispanicus','🦎','reptiles','Roquedos y muros','Pequeño reptil diurno que se refugia en grietas y toma el sol.'],
@@ -22,6 +22,11 @@ const catalog = [
   name, scientific, emoji, kind, habitat, description,
   palette: ['linear-gradient(145deg,#dce9d7,#799477)','linear-gradient(145deg,#efe5bd,#a2ad70)','linear-gradient(145deg,#d9e2bf,#819572)','linear-gradient(145deg,#e6d8c1,#a78f73)'][index % 4]
 }));
+const targetKinds={aves:{emoji:'🐦',palette:'linear-gradient(145deg,#dce9d7,#799477)'},mamiferos:{emoji:'🐾',palette:'linear-gradient(145deg,#e6d8c1,#a78f73)'},reptiles:{emoji:'🦎',palette:'linear-gradient(145deg,#d9e2bf,#819572)'},otros:{emoji:'🌊',palette:'linear-gradient(145deg,#dce8ed,#789aa2)'}};
+const starterByName=new Map(starterCatalog.map(item=>[item.name.toLocaleLowerCase('es'),item]));
+const catalog=Array.isArray(window.FOTODEX_SPECIES_TARGETS)&&window.FOTODEX_SPECIES_TARGETS.length
+  ? window.FOTODEX_SPECIES_TARGETS.map((item,index)=>{const known=starterByName.get(item.name.toLocaleLowerCase('es'));return {name:item.name,scientific:known?.scientific||'',emoji:known?.emoji||targetKinds[item.kind]?.emoji||'🐾',kind:item.kind,habitat:known?.habitat||'',description:known?.description||'Especie incluida en la lista principal de FotoDex. Los datos científicos y de hábitat se completarán con fuentes fiables.',palette:known?.palette||targetKinds[item.kind]?.palette||['linear-gradient(145deg,#dce9d7,#799477)','linear-gradient(145deg,#efe5bd,#a2ad70)','linear-gradient(145deg,#d9e2bf,#819572)','linear-gradient(145deg,#e6d8c1,#a78f73)'][index%4]}})
+  : starterCatalog;
 
 const photoInput = document.querySelector('#photo-input');
 const captureModal = document.querySelector('#capture-modal');
@@ -31,6 +36,8 @@ const form = document.querySelector('#capture-form');
 const detailModal = document.querySelector('#species-modal');
 const urls = new Map();
 let captures = [];
+const COLLECTION_PAGE_SIZE = 48;
+let collectionVisibleCount = COLLECTION_PAGE_SIZE;
 let activePhoto = null;
 let coordinates = null;
 let editingId = null;
@@ -170,8 +177,8 @@ function speciesCard(item) {
   const needsScientific=Boolean(item.capture&&!String(item.capture.scientific||'').trim());
   return `<button type="button" class="species-card" data-species="${esc(item.name)}">
     <span class="species-art ${src?'has-photo':''}" style="background:${item.palette}">${src ? `<img src="${src}" alt="${esc(item.name)}" loading="lazy" decoding="async"/>` : `<span class="creature">${item.emoji}</span>`}</span>
-    <span class="species-copy"><span class="species-title">${esc(item.name)}</span><span class="species-scientific">${esc(item.scientific)}</span>
-      <span class="species-foot"><span>⌖ ${esc(item.capture?.place || item.capture?.habitat || item.habitat)}</span><span class="badge ${needsScientific?'badge-review':item.seen?'':'badge-muted'}">${needsScientific?'Completar ficha':item.seen?'Capturada':'Por descubrir'}</span></span>
+    <span class="species-copy"><span class="species-title">${esc(item.name)}</span><span class="species-scientific">${esc(item.scientific||'Nombre científico pendiente')}</span>
+      <span class="species-foot"><span>⌖ ${esc(item.capture?.place || item.capture?.habitat || item.habitat || 'Hábitat pendiente')}</span><span class="badge ${needsScientific?'badge-review':item.seen?'':'badge-muted'}">${needsScientific?'Completar ficha':item.seen?'Capturada':'Por descubrir'}</span></span>
     </span>
   </button>`;
 }
@@ -203,7 +210,8 @@ function setOptions() {
   const countries = [...new Set(captures.map(x=>x.country).filter(Boolean))];
   document.querySelector('#country-filter-options').innerHTML = countries.map(x=>`<option value="${esc(x)}"></option>`).join('');
 }
-function renderSpecies() {
+function renderSpecies(resetPage=true) {
+  if(resetPage)collectionVisibleCount=COLLECTION_PAGE_SIZE;
   const type = document.querySelector('.chip.selected[data-filter]')?.dataset.filter || 'todas';
   const status = document.querySelector('#status-filter').value;
   const habitat = document.querySelector('#habitat-filter').value;
@@ -226,7 +234,12 @@ function renderSpecies() {
     if(hasA&&da!==db)return sort==='oldest'?da-db:db-da;
     return a.name.localeCompare(b.name,'es',{sensitivity:'base'});
   });
-  document.querySelector('#species-grid').innerHTML = filtered.length ? filtered.map(speciesCard).join('') : '<div class="empty-state"><strong>No encontramos especies</strong>Prueba con otro nombre o cambia los filtros.</div>';
+  const visible=filtered.slice(0,collectionVisibleCount);
+  document.querySelector('#species-grid').innerHTML = visible.length ? visible.map(speciesCard).join('') : '<div class="empty-state"><strong>No encontramos especies</strong>Prueba con otro nombre o cambia los filtros.</div>';
+  document.querySelector('#collection-results-count').textContent=filtered.length?`Mostrando ${visible.length} de ${filtered.length} especies`:'';
+  const moreButton=document.querySelector('#show-more-species');
+  moreButton.classList.toggle('hidden',visible.length>=filtered.length);
+  moreButton.textContent=`Mostrar ${Math.min(COLLECTION_PAGE_SIZE,filtered.length-visible.length)} más`;
 }
 function renderExplore() {
   const peopleMode=exploreMode==='people';
@@ -747,8 +760,8 @@ function showSpeciesDetails(name) {
   const src=item.capture?imageURL(item.capture):'';
   document.querySelector('#species-detail-content').innerHTML=`
     <div class="detail-photo" style="background:${item.palette}">${src?`<img src="${src}" alt="${esc(item.name)}"/>`:item.emoji}</div>
-    <p class="eyebrow">FICHA DE ESPECIE · ${item.seen?'YA CAPTURADA':'POR DESCUBRIR'}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific)}</p><p class="species-description">${esc(item.description)}</p>
-    <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.capture?.habitat||item.habitat)}</strong></div><div><small>ESTADO</small><strong>${item.seen?'Capturada':'Aún no capturada'}</strong></div><div><small>UBICACIÓN</small><strong>${esc(item.capture?.place||item.capture?.country||'Pendiente')}</strong></div></div>
+    <p class="eyebrow">FICHA DE ESPECIE · ${item.seen?'YA CAPTURADA':'POR DESCUBRIR'}</p><h2>${esc(item.name)}</h2><p class="detail-scientific">${esc(item.scientific||'Nombre científico pendiente')}</p><p class="species-description">${esc(item.description)}</p>
+    <div class="detail-grid"><div><small>GRUPO</small><strong>${esc(kindLabel(item.kind))}</strong></div><div><small>HÁBITAT</small><strong>${esc(item.capture?.habitat||item.habitat||'Pendiente')}</strong></div><div><small>ESTADO</small><strong>${item.seen?'Capturada':'Aún no capturada'}</strong></div><div><small>UBICACIÓN</small><strong>${esc(item.capture?.place||item.capture?.country||'Pendiente')}</strong></div></div>
     <p class="privacy-note">Ficha introductoria; revisaremos los datos científicos al conectar una fuente de referencia.</p>
     ${item.capture&&!String(item.capture.scientific||'').trim()?'<p class="privacy-note">Tu captura aún no tiene nombre científico. Puedes completarlo en la ficha.</p>':''}
     ${item.capture?`<div class="detail-actions"><button class="edit-button" data-open-capture="${esc(item.capture.id)}">${!String(item.capture.scientific||'').trim()?'Completar ficha':'Ver mi captura'}</button></div>`:''}`;
@@ -827,6 +840,7 @@ async function submitComment(event) {
 
 document.querySelector('#today-label').textContent=new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toLocaleUpperCase('es');
 document.querySelector('#search-input').addEventListener('input',renderSpecies);
+document.querySelector('#show-more-species').addEventListener('click',()=>{collectionVisibleCount+=COLLECTION_PAGE_SIZE;renderSpecies(false)});
 document.querySelector('#explore-search').addEventListener('input',renderExplore);
 document.querySelector('#explore-filter-button').addEventListener('click',()=>document.querySelector('#explore-filters').classList.toggle('filters-open'));
 ['explore-group-filter','explore-habitat-filter','explore-country-filter'].forEach(id=>document.querySelector('#'+id).addEventListener('change',renderExplore));
